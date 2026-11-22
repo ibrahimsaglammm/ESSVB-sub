@@ -7,6 +7,7 @@
 </p>
 
 - **Marka & Lisans:** ESSVB Özel Mülkiyet Lisansı ([LICENSE](LICENSE))
+- **Güncel Sürüm:** `v1.2.0` (Uygulama içi **`Yardım & Hakkında`** sekmesi + 5 adımlı görsel rehber)
 - **Sıfır Telemetri:** Hiçbir dış analiz, izleme, reklam veya ortak veri havuzuna görüntü/metin gönderilmez.
 - **Güvenli Yerel TV Yayını:** Yalnızca 6 haneli tek kullanımlık PIN eşleştirmesiyle üretilen şifreli token ile bağlanılır; CGNAT alt ağları engellenir.
 - **Ayrıntılı Resimli Anlatım:** Yeni başlayanlar için adım adım rehber ➔ **[KURULUM_REHBERI.md](KURULUM_REHBERI.md)**
@@ -59,6 +60,14 @@ chmod +x install-cachyos.sh
   - **Bulut Yüksek AI:** **Google Gemini** (`gemini-3.5-flash-lite` ★ F/P önerilen, `gemini-3.8-flash`, `gemini-3.1-pro-preview`), **xAI Grok** (`grok-3-mini`), **OpenAI ChatGPT** (`gpt-4.1-mini`), **Anthropic Claude** (`claude-3-5-haiku-latest`), **DeepL** — güncel F/P etiketli seçici + API anahtarıyla canlı model tarama.
 
 ![Model ve Mod Seçim Rehberi](docs/images/04-model-ve-mod-secimi.png)
+
+### 4. Altyazı Penceresi, Karartı, Konuşmacı Renkleri & Uygulama İçi Resimli Yardım
+- **Sürükle & Boyutlandır Overlay:** **`Altyazı Penceresini Taşı / Boyutlandır`** butonuyla kutuyu istediğiniz yere sürükleyip 8 kenar/köşeden yeniden boyutlandırabilirsiniz.
+- **%0 Tam Şeffaf – %100 Karartı:** Arka plan karartısı `%0` iken karanlık kutu tamamen kalkar; okunaklı dış konturlu metin görünür.
+- **Konuşmacı Renk Ayrımı:** Farklı konuşmacılar ve `- Satır 1 / - Satır 2` diyalogları otomatik renk ve sol vurgu şeridiyle ayrılır.
+- **Uygulama İçi `Yardım & Hakkında` Sekmesi:** Program sürümünü (`v1.2.0` + commit doğrulama), Rust hızlandırma durumunu ve bu 5 resimli rehberi doğrudan uygulamanın içinden görüntüleyebilirsiniz.
+
+![Altyazı Penceresi ve Kullanım Rehberi](docs/images/05-altyazi-penceresi-ve-kullanim.png)
 
 ---
 

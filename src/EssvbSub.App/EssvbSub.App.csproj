@@ -21,6 +21,11 @@
 
   <ItemGroup>
     <AvaloniaResource Include="Assets\essvb-logo.png" />
+    <AvaloniaResource Include="..\..\docs\images\01-pc-kurulum.png" Link="Assets\Help\01-pc-kurulum.png" />
+    <AvaloniaResource Include="..\..\docs\images\02-samsung-tv-kurulum.png" Link="Assets\Help\02-samsung-tv-kurulum.png" />
+    <AvaloniaResource Include="..\..\docs\images\03-playstation-kurulum.png" Link="Assets\Help\03-playstation-kurulum.png" />
+    <AvaloniaResource Include="..\..\docs\images\04-model-ve-mod-secimi.png" Link="Assets\Help\04-model-ve-mod-secimi.png" />
+    <AvaloniaResource Include="..\..\docs\images\05-altyazi-penceresi-ve-kullanim.png" Link="Assets\Help\05-altyazi-penceresi-ve-kullanim.png" />
   </ItemGroup>
 
   <ItemGroup>

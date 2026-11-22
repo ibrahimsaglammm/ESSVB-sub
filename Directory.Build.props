@@ -1,0 +1,14 @@
+<Project>
+  <!-- Copyright (c) 2026 ESSVB. All Rights Reserved. -->
+  <PropertyGroup>
+    <Version>1.2.0</Version>
+    <AssemblyVersion>1.2.0.0</AssemblyVersion>
+    <FileVersion>1.2.0.0</FileVersion>
+    <Authors>ESSVB</Authors>
+    <Company>ESSVB</Company>
+    <Product>ESSVB-sub</Product>
+    <Copyright>Copyright (c) 2026 ESSVB. All Rights Reserved.</Copyright>
+    <RepositoryUrl>https://github.com/ibrahimsaglammm/ESSVB-sub</RepositoryUrl>
+    <IncludeSourceRevisionInInformationalVersion>true</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
+</Project>

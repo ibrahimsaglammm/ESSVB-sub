@@ -1,6 +1,6 @@
-# ESSVB-sub Başlangıç ve Görsel Kurulum Rehberi
+# ESSVB-sub Başlangıç ve Görsel Kurulum Rehberi (`v1.2.0`)
 
-Hiç teknik bilginiz olmasa bile aşağıdaki **4 resimli adımı** sırayla izleyerek **5 dakika içinde** bilgisayarda, **Samsung 65" CU8500 / MU9000 TV**'nizde ve **PlayStation 5 / PS4 Pro** konsolunuzda canlı Türkçe altyazıyı açabilirsiniz.
+Hiç teknik bilginiz olmasa bile aşağıdaki **5 resimli adımı** sırayla izleyerek **5 dakika içinde** bilgisayarda, **Samsung 65" CU8500 / MU9000 TV**'nizde ve **PlayStation 5 / PS4 Pro** konsolunuzda canlı Türkçe altyazıyı açabilirsiniz. Bu rehberin tamamına uygulamanın üst menüsündeki **`Yardım & Hakkında`** sekmesinden de her zaman ulaşabilirsiniz.
 
 ---
 
@@ -79,11 +79,23 @@ Konsola bilgisayar penceresi açmadan doğrudan arka plandan bağlanmak için (`
 
 ### Hangi Çeviri Motoru Bana Uygun?
 - **Hiç internet/ücret olmadan kendi PC'mde çalışsın diyorsanız:**
-  - **Ollama (Yerel AI):** Program açılışta bilgisayarınızdaki yüklü Ollama modellerini otomatik tarayıp açılır listeye doldurur (`Modelleri Tara` ile istediğiniz zaman yenileyebilirsiniz); isterseniz **`Özel model adını elle gir`** kutusunu açıp farklı ad da yazabilirsiniz.
+  - **Ollama (Yerel AI):** Program açılışta bilgisayarınızdaki yüklü Ollama modellerini otomatik tarayıp açılır listeye doldurur (`Modelleri Tara` ile istediğiniz zaman yenileyebilirsiniz; **`gemma3:4b-it-q8_0`** hız/kalite dengesi için önerilir ve yerel `/api/chat` + `think: false` ile çalışır). İsterseniz **`Özel model adını elle gir`** kutusunu açıp farklı ad da yazabilirsiniz.
   - **LM Studio:** Grafik arayüzle indirdiğiniz GGUF modellerini de otomatik listeler.
   - **CTranslate2 (`opus-mt-en-tr`):** Ekran kartı belleği düşük sistemler için çok hızlı çevrimdışı çeviri.
 - **En doğal deyim, argo, küfür ve hikaye kalitesini istiyorsanız:**
-  - **Google Gemini, xAI Grok, OpenAI ChatGPT, Anthropic Claude, DeepL:** Her sağlayıcı için önerilen güncel modeller seçiciden tek tıkla seçilir; API anahtarınızı girdiğinizde hesabınıza açık canlı modelleri de tarayıp listeye ekler.
+  - **Google Gemini:** Varsayılan **`gemini-3.5-flash-lite` (★ En Ucuz & Hızlı F/P)** ile en düşük maliyetli canlı çeviriyi alabilir; `gemini-3.8-flash` veya `gemini-3.1-pro-preview` modellerini seçebilirsiniz.
+  - **xAI Grok, OpenAI ChatGPT, Anthropic Claude, DeepL:** Her sağlayıcı için güncel F/P modeller seçiciden tek tıkla seçilir; API anahtarınızı girdiğinizde hesabınıza açık canlı modelleri de tarayıp listeye ekler.
+
+---
+
+## Adım 5: Altyazı Penceresi, Karartı, Konuşmacı Renkleri & Sürüm Kontrolü
+
+![Altyazı Penceresi ve Kullanım Rehberi](docs/images/05-altyazi-penceresi-ve-kullanim.png)
+
+- **Taşı & Boyutlandır:** **`Altyazı Penceresini Taşı / Boyutlandır`** butonuna basın, kutuyu sürükleyip 8 kenar/köşeden büyütüp küçültün; işiniz bitince aynı butona tekrar basın. Konumunuz otomatik kaydedilir.
+- **Arka Plan Karartısı (`%0` – `%100`):** Sürgüyü `%0`'a çektiğinizde arka plan karartısı tamamen kalkar ve yazı okunaklı dış kontur/gölge ile görünür.
+- **Konuşmacı Renk Ayrımı:** Farklı karakterler (`KRATOS:`, `ATREUS:`) veya `- Satır 1` / `- Satır 2` diyalogları hem PC overlay'inde hem Samsung TV'de farklı renk ve sol vurgu şeridiyle ayrılır.
+- **Sürüm & Kurulum Doğrulama:** Üst menüdeki **`Yardım & Hakkında`** sekmesinden kurulu sürümü (`v1.2.0`), Rust motoru (`essvb_fast.dll`) durumunu ve kurulu klasör yolunu istediğiniz an kontrol edebilirsiniz.
 
 ---
 

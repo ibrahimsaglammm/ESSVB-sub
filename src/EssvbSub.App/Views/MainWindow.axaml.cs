@@ -1,7 +1,10 @@
 // Copyright (c) 2026 ESSVB. All Rights Reserved.
 
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Layout;
+using Avalonia.Media;
 using EssvbSub.App.ViewModels;
 using EssvbSub.Core.Models;
 
@@ -87,9 +90,64 @@ public partial class MainWindow : Window
         };
     }
 
-    private void OnSelectPlayStation(object? sender, RoutedEventArgs e) { if (Vm is not null) Vm.Mode = OperatingMode.PlayStation; }
-    private void OnSelectPcGame(object? sender, RoutedEventArgs e) { if (Vm is not null) Vm.Mode = OperatingMode.PcGame; }
-    private void OnSelectMediaStream(object? sender, RoutedEventArgs e) { if (Vm is not null) Vm.Mode = OperatingMode.MediaStream; }
+    private void OnSelectPlayStation(object? sender, RoutedEventArgs e) { if (Vm is not null) { Vm.IsHelpTabActive = false; Vm.Mode = OperatingMode.PlayStation; } }
+    private void OnSelectPcGame(object? sender, RoutedEventArgs e) { if (Vm is not null) { Vm.IsHelpTabActive = false; Vm.Mode = OperatingMode.PcGame; } }
+    private void OnSelectMediaStream(object? sender, RoutedEventArgs e) { if (Vm is not null) { Vm.IsHelpTabActive = false; Vm.Mode = OperatingMode.MediaStream; } }
+    private void OnSelectHelpTab(object? sender, RoutedEventArgs e) { if (Vm is not null) Vm.IsHelpTabActive = true; }
+    private void OnSelectHelpGuide(object? sender, RoutedEventArgs e)
+    {
+        if (Vm is not null && sender is Control { Tag: string tagText } && int.TryParse(tagText, out int idx))
+            Vm.SelectHelpGuideByIndex(idx);
+    }
+    private void OnPrevHelpGuide(object? sender, RoutedEventArgs e) => Vm?.PreviousHelpGuide();
+    private void OnNextHelpGuide(object? sender, RoutedEventArgs e) => Vm?.NextHelpGuide();
+    private void OnOpenGitHubRepo(object? sender, RoutedEventArgs e) => Vm?.OpenGitHubRepo();
+    private void OnOpenGitHubReleases(object? sender, RoutedEventArgs e) => Vm?.OpenGitHubReleases();
+    private void OnOpenAppFolder(object? sender, RoutedEventArgs e) => Vm?.OpenAppFolder();
+    private void OnOpenConfigFolder(object? sender, RoutedEventArgs e) => Vm?.OpenConfigFolder();
+
+    private void OnOpenHelpImageFullscreen(object? sender, RoutedEventArgs e)
+    {
+        if (Vm?.SelectedHelpGuideBitmap is not { } bmp)
+            return;
+
+        var modal = new Window
+        {
+            Title = $"ESSVB-sub — {Vm.SelectedHelpGuide.FullTitle}",
+            Width = 1280,
+            Height = 820,
+            MinWidth = 760,
+            MinHeight = 520,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Background = new SolidColorBrush(Color.Parse("#0A0D12"))
+        };
+
+        var closeBtn = new Button
+        {
+            Content = "Kapat",
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Classes = { "primary" },
+            Margin = new Thickness(0, 10, 0, 0)
+        };
+        closeBtn.Click += (_, _) => modal.Close();
+
+        var layout = new Grid
+        {
+            RowDefinitions = new RowDefinitions("*,Auto"),
+            Margin = new Thickness(14)
+        };
+        var img = new Image
+        {
+            Source = bmp,
+            Stretch = Stretch.Uniform
+        };
+        Grid.SetRow(img, 0);
+        Grid.SetRow(closeBtn, 1);
+        layout.Children.Add(img);
+        layout.Children.Add(closeBtn);
+        modal.Content = layout;
+        modal.Show(this);
+    }
     private void OnToggleStartStop(object? sender, RoutedEventArgs e) => Vm?.ToggleStartStop();
     private void OnRefreshWindows(object? sender, RoutedEventArgs e) => Vm?.RefreshWindows();
     private async void OnSelectRegion(object? sender, RoutedEventArgs e) { if (Vm is not null) await Vm.SelectScreenRegionAsync(); }

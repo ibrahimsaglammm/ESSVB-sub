@@ -9,7 +9,7 @@ Set-Location $RepoRoot
 
 Write-Host ""
 Write-Host "==============================================" -ForegroundColor Yellow
-Write-Host "   ESSVB-sub — Windows 11 Kurulum & Baslatici" -ForegroundColor Cyan
+Write-Host "   ESSVB-sub v1.2.0 — Windows 11 Kurulum & Baslatici" -ForegroundColor Cyan
 Write-Host "==============================================" -ForegroundColor Yellow
 
 function Test-DotNet10 {

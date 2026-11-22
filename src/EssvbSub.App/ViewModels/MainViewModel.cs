@@ -4,12 +4,15 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using Avalonia.Media.Imaging;
+using Avalonia.Platform;
 using Avalonia.Threading;
 using EssvbSub.App.Services;
 using EssvbSub.Capture.Desktop;
 using EssvbSub.Capture.Ocr;
 using EssvbSub.Capture.PlayStation;
 using EssvbSub.Capture.TvInstall;
+using EssvbSub.Core;
 using EssvbSub.Core.Models;
 using EssvbSub.Core.Pipeline;
 using EssvbSub.Core.Server;
@@ -51,9 +54,13 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     private string _modelDiscoveryStatus = "";
     private bool _syncingModels;
     private bool _isOverlayEditMode;
+    private bool _isHelpTabActive;
+    private HelpGuideItem _selectedHelpGuide;
+    private readonly Dictionary<string, Bitmap> _helpBitmapCache = [];
 
     public MainViewModel()
     {
+        _selectedHelpGuide = HelpGuides[0];
         _settings = SettingsStore.Load();
         _apiKeyInput = SettingsStore.GetApiKey(_settings.Provider);
         if (_settings.UseScreenRegion && _settings.ScreenWidth >= 32 && _settings.ScreenHeight >= 20)
@@ -124,13 +131,159 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
                 _settings.Output = OutputTarget.SamsungTv;
 
             _server.SendsToTv = _settings.Output != OutputTarget.PcOverlay;
-            SaveAndNotify(nameof(Mode), nameof(IsPlayStationMode), nameof(IsPcGameMode), nameof(IsMediaStreamMode), nameof(Output));
+            SaveAndNotify(
+                nameof(Mode),
+                nameof(IsPlayStationMode), nameof(IsPcGameMode), nameof(IsMediaStreamMode),
+                nameof(IsPlayStationTabActive), nameof(IsPcGameTabActive), nameof(IsMediaStreamTabActive),
+                nameof(Output));
         }
     }
 
     public bool IsPlayStationMode => Mode == OperatingMode.PlayStation;
     public bool IsPcGameMode => Mode == OperatingMode.PcGame;
     public bool IsMediaStreamMode => Mode == OperatingMode.MediaStream;
+
+    public bool IsPlayStationTabActive => !IsHelpTabActive && IsPlayStationMode;
+    public bool IsPcGameTabActive => !IsHelpTabActive && IsPcGameMode;
+    public bool IsMediaStreamTabActive => !IsHelpTabActive && IsMediaStreamMode;
+    public bool IsWorkspaceVisible => !IsHelpTabActive;
+
+    public bool IsHelpTabActive
+    {
+        get => _isHelpTabActive;
+        set
+        {
+            if (_isHelpTabActive == value) return;
+            _isHelpTabActive = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsWorkspaceVisible));
+            OnPropertyChanged(nameof(IsPlayStationTabActive));
+            OnPropertyChanged(nameof(IsPcGameTabActive));
+            OnPropertyChanged(nameof(IsMediaStreamTabActive));
+        }
+    }
+
+    public IReadOnlyList<HelpGuideItem> HelpGuides { get; } =
+    [
+        new(1, "1. PC Kurulum", "Adım 1: Bilgisayara Kurulum (Windows 11 & CachyOS)",
+            "GitHub'dan tek tıkla Start-ESSVB-sub.bat kurulumu, Masaüstü kısayolu, Windows 11 yerleşik OCR ve CachyOS komutu.",
+            "01-pc-kurulum.png"),
+        new(2, "2. Samsung TV", "Adım 2: Samsung 65\" CU8500 & MU9000 Otomatik TV Kurulumu",
+            "Tizen Studio gerekmeden TV'de 1-2-3-4-5 Developer Mode açma, TV Ara ile bulma ve tek tıkla TV'ye kurup eşleştirme.",
+            "02-samsung-tv-kurulum.png"),
+        new(3, "3. PS5 / PS4 Pro", "Adım 3: PlayStation 5 & PlayStation 4 Pro Bağlantısı",
+            "HDMI kablosu TV'ye bağlıyken DualSense/DualShock ile sıfır gecikmeli oynama; PS Remote Play pencere yakalama ve 2. PSN eşleme.",
+            "03-playstation-kurulum.png"),
+        new(4, "4. Mod & Model", "Adım 4: Mod ve Çeviri Modeli Seçimi (Yerel & F/P Yüksek AI)",
+            "Ollama gemma3:4b-it-q8_0 / qwen3 yerel tarayıcı ve Google Gemini gemini-3.5-flash-lite ★ F/P seçimi, Grok, ChatGPT, Claude rehberi.",
+            "04-model-ve-mod-secimi.png"),
+        new(5, "5. Altyazı & Kullanım", "Adım 5: Altyazı Penceresi, Karartı (%0–%100), Konuşmacılar & Kullanım",
+            "Altyazı kutusunu sürükleyip boyutlandırma, arka plan karartısını %0'a indirme, konuşmacı renk ayrımı ve Rust hızlandırma.",
+            "05-altyazi-penceresi-ve-kullanim.png")
+    ];
+
+    public HelpGuideItem SelectedHelpGuide
+    {
+        get => _selectedHelpGuide;
+        set
+        {
+            if (value is null || ReferenceEquals(_selectedHelpGuide, value)) return;
+            _selectedHelpGuide = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(SelectedHelpGuideBitmap));
+            OnPropertyChanged(nameof(CanGoPreviousHelpGuide));
+            OnPropertyChanged(nameof(CanGoNextHelpGuide));
+        }
+    }
+
+    public bool CanGoPreviousHelpGuide => SelectedHelpGuide.Index > 1;
+    public bool CanGoNextHelpGuide => SelectedHelpGuide.Index < HelpGuides.Count;
+
+    public Bitmap? SelectedHelpGuideBitmap
+    {
+        get
+        {
+            string fileName = SelectedHelpGuide.FileName;
+            if (_helpBitmapCache.TryGetValue(fileName, out var cached))
+                return cached;
+
+            try
+            {
+                using Stream? resStream = AssetLoader.Open(new Uri(SelectedHelpGuide.ResourceUri));
+                var bmp = new Bitmap(resStream);
+                _helpBitmapCache[fileName] = bmp;
+                return bmp;
+            }
+            catch
+            {
+                try
+                {
+                    string diskPath = Path.Combine(AppContext.BaseDirectory, "docs", "images", fileName);
+                    if (File.Exists(diskPath))
+                    {
+                        var bmp = new Bitmap(diskPath);
+                        _helpBitmapCache[fileName] = bmp;
+                        return bmp;
+                    }
+                }
+                catch { }
+                return null;
+            }
+        }
+    }
+
+    public string WindowTitle => $"ESSVB-sub {AppInfo.VersionBadge} — Canlı Altyazı Stüdyosu";
+    public string AppVersionBadge => AppInfo.VersionBadge;
+    public string AppFullVersion => AppInfo.FullVersionLabel;
+    public string AppBuildDate => AppInfo.BuildDateLocal;
+    public string AppRuntimeSummary => AppInfo.RuntimeSummary;
+    public string RustEngineSummary => AppInfo.RustEngineSummary;
+    public bool IsRustEngineActive => RustFastAccel.IsAvailable;
+    public string AppExecutablePath => AppInfo.ExecutablePath;
+    public string AppConfigDirectory => AppInfo.ConfigDirectory;
+    public string AppLicenseSummary => AppInfo.LicenseSummary;
+    public string GitHubRepoUrl => AppInfo.GitHubRepoUrl;
+
+    public void SelectHelpGuideByIndex(int zeroBasedIndex)
+    {
+        if (zeroBasedIndex >= 0 && zeroBasedIndex < HelpGuides.Count)
+            SelectedHelpGuide = HelpGuides[zeroBasedIndex];
+    }
+
+    public void PreviousHelpGuide()
+    {
+        if (SelectedHelpGuide.Index > 1)
+            SelectedHelpGuide = HelpGuides[SelectedHelpGuide.Index - 2];
+    }
+
+    public void NextHelpGuide()
+    {
+        if (SelectedHelpGuide.Index < HelpGuides.Count)
+            SelectedHelpGuide = HelpGuides[SelectedHelpGuide.Index];
+    }
+
+    public void OpenGitHubRepo() => TryOpenShellTarget(AppInfo.GitHubRepoUrl);
+    public void OpenGitHubReleases() => TryOpenShellTarget(AppInfo.GitHubReleasesUrl);
+
+    public void OpenConfigFolder()
+    {
+        try { Directory.CreateDirectory(AppInfo.ConfigDirectory); } catch { }
+        TryOpenShellTarget(AppInfo.ConfigDirectory);
+    }
+
+    public void OpenAppFolder() => TryOpenShellTarget(AppInfo.ExecutableDirectory);
+
+    private void TryOpenShellTarget(string target)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(target) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"Bağlantı/klasör açılamadı: {ex.Message}");
+        }
+    }
 
     public ConsoleKind SelectedConsoleType
     {
@@ -1122,5 +1275,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         StopPipeline();
         _server.Dispose();
         _offlineFallback.Dispose();
+        foreach (var bmp in _helpBitmapCache.Values)
+            bmp.Dispose();
+        _helpBitmapCache.Clear();
     }
 }

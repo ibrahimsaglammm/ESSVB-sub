@@ -3,12 +3,12 @@
         xmlns:vm="using:EssvbSub.App.ViewModels"
         x:Class="EssvbSub.App.Views.MainWindow"
         x:DataType="vm:MainViewModel"
-        Title="ESSVB-sub — Canlı Altyazı Stüdyosu"
+        Title="{Binding WindowTitle}"
         Icon="/Assets/essvb-logo.png"
-        Width="1080"
-        Height="780"
-        MinWidth="920"
-        MinHeight="660">
+        Width="1180"
+        Height="800"
+        MinWidth="980"
+        MinHeight="680">
   <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="20">
 
     <!-- Header: ESSVB Brand Emblem + Mode Tabs + Start/Stop -->
@@ -17,24 +17,32 @@
         <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
           <Image Source="/Assets/essvb-logo.png" Width="42" Height="42" />
           <StackPanel VerticalAlignment="Center">
-            <StackPanel Orientation="Horizontal" Spacing="2">
-              <TextBlock Text="ESSVB" FontSize="20" FontWeight="Black" Foreground="#F5B83D" />
-              <TextBlock Text="-sub" FontSize="20" FontWeight="SemiBold" Foreground="#38BDF8" />
+            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+              <StackPanel Orientation="Horizontal" Spacing="1">
+                <TextBlock Text="ESSVB" FontSize="20" FontWeight="Black" Foreground="#F5B83D" />
+                <TextBlock Text="-sub" FontSize="20" FontWeight="SemiBold" Foreground="#38BDF8" />
+              </StackPanel>
+              <Border Background="#1D2536" BorderBrush="#F5B83D" BorderThickness="1" CornerRadius="6" Padding="6,2" VerticalAlignment="Center">
+                <TextBlock Text="{Binding AppVersionBadge}" FontSize="11" FontWeight="Bold" Foreground="#F5B83D" />
+              </Border>
             </StackPanel>
             <TextBlock Text="{Binding StatusMessage}" FontSize="12" Foreground="#9CA3AF" />
           </StackPanel>
         </StackPanel>
 
-        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="12,0">
-          <Button Content="PlayStation (PS5 / PS4 Pro)" Click="OnSelectPlayStation"
-                  Classes.tabActive="{Binding IsPlayStationMode}"
-                  Classes.tab="{Binding !IsPlayStationMode}" />
-          <Button Content="PC Oyun (Steam / Epic)" Click="OnSelectPcGame"
-                  Classes.tabActive="{Binding IsPcGameMode}"
-                  Classes.tab="{Binding !IsPcGameMode}" />
-          <Button Content="Film &amp; Dizi (Netflix / Prime / Disney+)" Click="OnSelectMediaStream"
-                  Classes.tabActive="{Binding IsMediaStreamMode}"
-                  Classes.tab="{Binding !IsMediaStreamMode}" />
+        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="10,0">
+          <Button Content="PlayStation (PS5/PS4)" Click="OnSelectPlayStation" Padding="12,9"
+                  Classes.tabActive="{Binding IsPlayStationTabActive}"
+                  Classes.tab="{Binding !IsPlayStationTabActive}" />
+          <Button Content="PC Oyun (Steam/Epic)" Click="OnSelectPcGame" Padding="12,9"
+                  Classes.tabActive="{Binding IsPcGameTabActive}"
+                  Classes.tab="{Binding !IsPcGameTabActive}" />
+          <Button Content="Film &amp; Dizi" Click="OnSelectMediaStream" Padding="12,9"
+                  Classes.tabActive="{Binding IsMediaStreamTabActive}"
+                  Classes.tab="{Binding !IsMediaStreamTabActive}" />
+          <Button Content="Yardım &amp; Hakkında" Click="OnSelectHelpTab" Padding="12,9"
+                  Classes.tabActive="{Binding IsHelpTabActive}"
+                  Classes.tab="{Binding !IsHelpTabActive}" />
         </StackPanel>
 
         <Button Grid.Column="2" Classes="primary" Content="{Binding StartStopLabel}"
@@ -57,7 +65,7 @@
     </Border>
 
     <!-- Main Two-Column Content -->
-    <ScrollViewer Grid.Row="2">
+    <ScrollViewer Grid.Row="2" IsVisible="{Binding IsWorkspaceVisible}">
       <Grid ColumnDefinitions="*,*">
 
         <!-- Left Column: Source & TV Configuration -->
@@ -190,7 +198,7 @@
                   <TextBlock Text="{Binding ModelDiscoveryStatus}" FontSize="11" Foreground="#34D399" TextWrapping="Wrap" />
                   <CheckBox IsChecked="{Binding UseCustomModelEntry}" Content="Özel model adını elle gir" FontSize="12" />
                   <TextBox Text="{Binding ModelName}" IsVisible="{Binding UseCustomModelEntry}"
-                           Watermark="Örn: gemma4-12b-64k:latest / gemini-2.5-flash" />
+                           Watermark="Örn: gemma3:4b-it-q8_0 / gemini-3.5-flash-lite" />
                 </StackPanel>
 
                 <TextBlock Grid.Row="2" Grid.Column="0" Text="Sunucu Adresi" VerticalAlignment="Center" Foreground="#9CA3AF" IsVisible="{Binding ShowEndpointBox}" Margin="0,0,8,8" />
@@ -270,6 +278,124 @@
 
         </StackPanel>
       </Grid>
+    </ScrollViewer>
+
+    <!-- Help & About Tab Content -->
+    <ScrollViewer Grid.Row="2" IsVisible="{Binding IsHelpTabActive}">
+      <StackPanel Spacing="14">
+
+        <!-- 1. Program Hakkında & Sürüm Bilgisi Kartı -->
+        <Border Classes="card">
+          <Grid ColumnDefinitions="Auto,*,Auto">
+            <Image Grid.Column="0" Source="/Assets/essvb-logo.png" Width="64" Height="64" VerticalAlignment="Top" Margin="0,4,16,0" />
+
+            <StackPanel Grid.Column="1" Spacing="8">
+              <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                <TextBlock Text="ESSVB-sub" FontSize="20" FontWeight="Black" Foreground="#F5B83D" />
+                <Border Background="#1D2536" BorderBrush="#F5B83D" BorderThickness="1.2" CornerRadius="8" Padding="10,3">
+                  <TextBlock Text="{Binding AppFullVersion}" FontSize="12" FontWeight="Bold" Foreground="#F5B83D" />
+                </Border>
+                <TextBlock Text="{Binding AppLicenseSummary}" FontSize="12" Foreground="#34D399" VerticalAlignment="Center" />
+              </StackPanel>
+
+              <Grid ColumnDefinitions="165,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto">
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Program Sürümü:" FontSize="12.5" Foreground="#9CA3AF" Margin="0,0,8,4" />
+                <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding AppFullVersion}" FontSize="12.5" FontWeight="Bold" Foreground="#F3EEE4" Margin="0,0,0,4" />
+
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="Derleme Tarihi:" FontSize="12.5" Foreground="#9CA3AF" Margin="0,0,8,4" />
+                <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding AppBuildDate}" FontSize="12.5" Foreground="#F3EEE4" Margin="0,0,0,4" />
+
+                <TextBlock Grid.Row="2" Grid.Column="0" Text="Hızlandırma Motoru:" FontSize="12.5" Foreground="#9CA3AF" Margin="0,0,8,4" />
+                <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding RustEngineSummary}" FontSize="12.5" FontWeight="SemiBold" Foreground="#34D399" Margin="0,0,0,4" />
+
+                <TextBlock Grid.Row="3" Grid.Column="0" Text="Çalışma Ortamı:" FontSize="12.5" Foreground="#9CA3AF" Margin="0,0,8,4" />
+                <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding AppRuntimeSummary}" FontSize="12.5" Foreground="#38BDF8" Margin="0,0,0,4" />
+
+                <TextBlock Grid.Row="4" Grid.Column="0" Text="Kurulu Program Yolu:" FontSize="12.5" Foreground="#9CA3AF" Margin="0,0,8,4" />
+                <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding AppExecutablePath}" FontSize="12" Foreground="#F3EEE4" TextTrimming="CharacterEllipsis" Margin="0,0,0,4" />
+
+                <TextBlock Grid.Row="5" Grid.Column="0" Text="Ayar &amp; Şifreli Kasa:" FontSize="12.5" Foreground="#9CA3AF" Margin="0,0,8,0" />
+                <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding AppConfigDirectory}" FontSize="12" Foreground="#F3EEE4" TextTrimming="CharacterEllipsis" />
+              </Grid>
+            </StackPanel>
+
+            <StackPanel Grid.Column="2" Spacing="8" VerticalAlignment="Center" Margin="16,0,0,0">
+              <Button Classes="primary" Content="GitHub Deposunu Aç" Click="OnOpenGitHubRepo" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+              <Button Classes="secondary" Content="Son Sürümleri Kontrol Et" Click="OnOpenGitHubReleases" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+              <Button Classes="secondary" Content="Program Klasörünü Aç" Click="OnOpenAppFolder" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+              <Button Classes="secondary" Content="Ayar Klasörünü Aç" Click="OnOpenConfigFolder" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+            </StackPanel>
+          </Grid>
+        </Border>
+
+        <!-- 2. Resimli Kullanım Rehberi Kartı (5 Adım) -->
+        <Border Classes="card">
+          <StackPanel Spacing="10">
+            <Grid ColumnDefinitions="*,Auto">
+              <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                <TextBlock Text="Resimli Kullanım Rehberi" FontSize="16" FontWeight="Bold" Foreground="#F5B83D" />
+                <Border Background="#1D2434" BorderBrush="#38BDF8" BorderThickness="1" CornerRadius="6" Padding="8,2">
+                  <TextBlock Text="{Binding SelectedHelpGuide.StepLabel}" FontSize="12" FontWeight="Bold" Foreground="#38BDF8" />
+                </Border>
+              </StackPanel>
+              <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                <Button Classes="secondary" Content="◀ Önceki" Click="OnPrevHelpGuide" IsEnabled="{Binding CanGoPreviousHelpGuide}" />
+                <Button Classes="secondary" Content="Sonraki ▶" Click="OnNextHelpGuide" IsEnabled="{Binding CanGoNextHelpGuide}" />
+                <Button Classes="primary" Content="Resmi Büyük Aç" Click="OnOpenHelpImageFullscreen" />
+              </StackPanel>
+            </Grid>
+
+            <WrapPanel Orientation="Horizontal">
+              <Button Classes="secondary" Content="1. PC Kurulum" Tag="0" Click="OnSelectHelpGuide" Margin="0,0,8,4" />
+              <Button Classes="secondary" Content="2. Samsung TV" Tag="1" Click="OnSelectHelpGuide" Margin="0,0,8,4" />
+              <Button Classes="secondary" Content="3. PS5 / PS4 Pro" Tag="2" Click="OnSelectHelpGuide" Margin="0,0,8,4" />
+              <Button Classes="secondary" Content="4. Mod &amp; Model" Tag="3" Click="OnSelectHelpGuide" Margin="0,0,8,4" />
+              <Button Classes="secondary" Content="5. Altyazı &amp; Kullanım" Tag="4" Click="OnSelectHelpGuide" Margin="0,0,0,4" />
+            </WrapPanel>
+
+            <StackPanel Spacing="2">
+              <TextBlock Text="{Binding SelectedHelpGuide.FullTitle}" FontSize="14.5" FontWeight="Bold" Foreground="#F3EEE4" />
+              <TextBlock Text="{Binding SelectedHelpGuide.Summary}" FontSize="12.5" Foreground="#9CA3AF" TextWrapping="Wrap" />
+            </StackPanel>
+
+            <Border Background="#0A0D12" BorderBrush="#252C3B" BorderThickness="1.5" CornerRadius="10" Padding="8">
+              <Image Source="{Binding SelectedHelpGuideBitmap}" Stretch="Uniform" MaxHeight="580" />
+            </Border>
+          </StackPanel>
+        </Border>
+
+        <!-- 3. Hızlı İpuçları & Sürüm Notları -->
+        <Grid ColumnDefinitions="*,*">
+          <Border Grid.Column="0" Classes="card" Margin="0,0,7,0">
+            <StackPanel Spacing="6">
+              <TextBlock Text="Hızlı Kullanım İpuçları" FontSize="15" FontWeight="Bold" Foreground="#38BDF8" />
+              <TextBlock FontSize="12.5" Foreground="#F3EEE4" TextWrapping="Wrap"
+                         Text="• Oyun veya tarayıcıda alt yazı yakalamak için 'Altyazı Alanını Seç (ROI)' ile yalnızca altyazı bölgesini seçin." />
+              <TextBlock FontSize="12.5" Foreground="#F3EEE4" TextWrapping="Wrap"
+                         Text="• Ollama'da yüklü modeller otomatik taranır (gemma3:4b-it-q8_0 önerilir); Gemini için 'gemini-3.5-flash-lite' en ucuz ve hızlı F/P modelidir." />
+              <TextBlock FontSize="12.5" Foreground="#F3EEE4" TextWrapping="Wrap"
+                         Text="• 'Altyazı Penceresini Taşı / Boyutlandır' ile kutuyu sürükleyip boyutlandırabilir, 'Arka Plan Karartısı'nı %0'a indirerek tam şeffaf yapabilirsiniz." />
+              <TextBlock FontSize="12.5" Foreground="#F3EEE4" TextWrapping="Wrap"
+                         Text="• Samsung 65&quot; CU8500 / MU9000 TV'de Apps > 1 2 3 4 5 ile Geliştirici Modu'nu açtıktan sonra PC'den tek tıkla kurulum yapılır." />
+            </StackPanel>
+          </Border>
+
+          <Border Grid.Column="1" Classes="card" Margin="7,0,0,0">
+            <StackPanel Spacing="6">
+              <TextBlock Text="v1.2.0 Yenilikleri &amp; Doğrulama" FontSize="15" FontWeight="Bold" Foreground="#F5B83D" />
+              <TextBlock FontSize="12.5" Foreground="#34D399" TextWrapping="Wrap"
+                         Text="• Yeni: Uygulama içi 'Yardım &amp; Hakkında' sekmesi — 5 adım resimli rehber + canlı sürüm/commit doğrulama." />
+              <TextBlock FontSize="12.5" Foreground="#F3EEE4" TextWrapping="Wrap"
+                         Text="• Rust Hızlandırma (essvb_fast.dll): SIMD + LTO OCR ön-işleme ve değişim algılama (~4.5 ms/kare)." />
+              <TextBlock FontSize="12.5" Foreground="#F3EEE4" TextWrapping="Wrap"
+                         Text="• Gemini 3.5 Flash Lite (F/P) kataloğu ve Ollama native /api/chat (think: false) 21x hızlandırma." />
+              <TextBlock FontSize="12.5" Foreground="#F3EEE4" TextWrapping="Wrap"
+                         Text="• Sürüklenip boyutlandırılabilen, %0–%100 karartı ayarlı ve konuşmacı renk şeritli yeni altyazı penceresi." />
+            </StackPanel>
+          </Border>
+        </Grid>
+
+      </StackPanel>
     </ScrollViewer>
 
     <!-- Bottom Live Subtitle & Latency Bar -->
