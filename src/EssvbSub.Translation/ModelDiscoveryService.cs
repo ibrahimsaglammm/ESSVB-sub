@@ -38,8 +38,16 @@ public static class ModelDiscoveryService
     private static readonly string[] IgnoredModelFragments =
     [
         "bge-", "nomic-embed", "mxbai-embed", "all-minilm", "embedding",
-        "whisper", "tts", "dall-e", "moderation", "sora", "realtime"
+        "whisper", "tts", "dall-e", "moderation", "sora", "realtime",
+        "nano-banana", "lyria", "-image", "-transcribe"
     ];
+
+    private static readonly HashSet<string> DeprecatedGeminiModels = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite",
+        "gemini-2.5-pro"
+    };
 
     public static async Task<ModelDiscoveryResult> DiscoverModelsAsync(
         AiProviderKind provider,
@@ -48,7 +56,9 @@ public static class ModelDiscoveryService
         CancellationToken ct = default)
     {
         var desc = AiProviderCatalog.Get(provider);
-        var curated = desc.SuggestedModels.Select(id => new DiscoveredModel(id, id, desc.IsLocal)).ToList();
+        var curated = desc.RecommendedPresets
+            .Select(p => new DiscoveredModel(p.Id, p.Label, desc.IsLocal))
+            .ToList();
 
         if (provider == AiProviderKind.LocalMarian)
             return new ModelDiscoveryResult(curated, false, "Çevrimdışı yerleşik model");
@@ -196,7 +206,7 @@ public static class ModelDiscoveryService
         }
     }
 
-    private static IReadOnlyList<DiscoveredModel> ParseGeminiModelsJson(string json)
+    internal static IReadOnlyList<DiscoveredModel> ParseGeminiModelsJson(string json)
     {
         var list = new List<DiscoveredModel>();
         var root = JsonNode.Parse(json);
@@ -218,7 +228,7 @@ public static class ModelDiscoveryService
             string id = rawName.StartsWith("models/", StringComparison.OrdinalIgnoreCase)
                 ? rawName["models/".Length..]
                 : rawName;
-            if (IsIgnoredModelName(id))
+            if (IsIgnoredModelName(id) || DeprecatedGeminiModels.Contains(id))
                 continue;
 
             list.Add(new DiscoveredModel(id, id, IsLocal: false));

@@ -332,6 +332,9 @@ public sealed class CrossPlatformWindowCapture : IDisposable
             if (!frame.IsConsistent || frame.Width <= 0 || frame.Height <= 0)
                 return true;
 
+            if (EssvbSub.Core.Pipeline.RustFastAccel.TryIsMostlyBlack(frame, out bool fastBlack))
+                return fastBlack;
+
             int stepY = Math.Max(1, frame.Height / 16);
             int stepX = Math.Max(1, frame.Width / 16);
             int total = 0, nonBlack = 0;

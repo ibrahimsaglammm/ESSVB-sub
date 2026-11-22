@@ -80,7 +80,7 @@ public sealed class CloudAudioTranscriber : ISpeechTranscriber
         _useGemini = useGemini;
         _apiKey = apiKey.Trim();
         _model = string.IsNullOrWhiteSpace(model)
-            ? (useGemini ? "gemini-2.5-flash" : "whisper-1")
+            ? (useGemini ? "gemini-3.5-flash-lite" : "whisper-1")
             : model.Trim();
     }
 

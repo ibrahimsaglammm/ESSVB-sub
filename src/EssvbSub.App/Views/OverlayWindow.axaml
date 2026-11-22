@@ -2,16 +2,57 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="EssvbSub.App.Views.OverlayWindow"
         Title="ESSVB-sub Overlay"
-        Width="1120"
+        Width="1100"
         Height="240"
+        MinWidth="420"
+        MinHeight="100"
         SystemDecorations="None"
         TransparencyLevelHint="Transparent"
         Background="Transparent"
         Topmost="True"
         ShowInTaskbar="False"
         Focusable="False"
-        CanResize="False">
-  <Grid VerticalAlignment="Bottom" Margin="20,8">
-    <StackPanel x:Name="LinesHost" Spacing="8" HorizontalAlignment="Center" VerticalAlignment="Bottom" />
+        CanResize="True">
+  <Grid>
+    <!-- Interactive Edit Frame & Resize Handles (Visible in Edit Mode) -->
+    <Border x:Name="EditChrome"
+            IsVisible="False"
+            Background="#300E1117"
+            BorderBrush="#F5B83D"
+            BorderThickness="2"
+            CornerRadius="12">
+      <Grid>
+        <!-- Top Drag Handle Bar -->
+        <Border x:Name="DragBar"
+                VerticalAlignment="Top"
+                Height="28"
+                Background="#DD141B29"
+                CornerRadius="10,10,0,0"
+                Cursor="SizeAll">
+          <TextBlock Text="⋮⋮ Altyazı Alanını Sürükleyin • Kenar ve Köşelerden Boyutlandırın"
+                     HorizontalAlignment="Center"
+                     VerticalAlignment="Center"
+                     FontSize="12"
+                     FontWeight="Bold"
+                     Foreground="#F5B83D" />
+        </Border>
+
+        <!-- 8 Edge & Corner Resize Grips -->
+        <Border Width="8" HorizontalAlignment="Left" Background="Transparent" Cursor="LeftSide" Tag="West" PointerPressed="OnResizeGripPressed" />
+        <Border Width="8" HorizontalAlignment="Right" Background="Transparent" Cursor="RightSide" Tag="East" PointerPressed="OnResizeGripPressed" />
+        <Border Height="6" VerticalAlignment="Top" Background="Transparent" Cursor="TopSide" Tag="North" PointerPressed="OnResizeGripPressed" />
+        <Border Height="8" VerticalAlignment="Bottom" Background="Transparent" Cursor="BottomSide" Tag="South" PointerPressed="OnResizeGripPressed" />
+
+        <Border Width="14" Height="14" HorizontalAlignment="Left" VerticalAlignment="Top" Background="#F5B83D" CornerRadius="3" Margin="2" Cursor="TopLeftCorner" Tag="NorthWest" PointerPressed="OnResizeGripPressed" />
+        <Border Width="14" Height="14" HorizontalAlignment="Right" VerticalAlignment="Top" Background="#F5B83D" CornerRadius="3" Margin="2" Cursor="TopRightCorner" Tag="NorthEast" PointerPressed="OnResizeGripPressed" />
+        <Border Width="14" Height="14" HorizontalAlignment="Left" VerticalAlignment="Bottom" Background="#F5B83D" CornerRadius="3" Margin="2" Cursor="BottomLeftCorner" Tag="SouthWest" PointerPressed="OnResizeGripPressed" />
+        <Border Width="14" Height="14" HorizontalAlignment="Right" VerticalAlignment="Bottom" Background="#F5B83D" CornerRadius="3" Margin="2" Cursor="BottomRightCorner" Tag="SouthEast" PointerPressed="OnResizeGripPressed" />
+      </Grid>
+    </Border>
+
+    <!-- Subtitle Content Stack -->
+    <Grid x:Name="ContentHost" VerticalAlignment="Bottom" Margin="16,32,16,12" IsHitTestVisible="False">
+      <StackPanel x:Name="LinesHost" Spacing="8" HorizontalAlignment="Center" VerticalAlignment="Bottom" />
+    </Grid>
   </Grid>
 </Window>

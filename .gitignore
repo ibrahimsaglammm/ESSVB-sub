@@ -11,6 +11,9 @@ obj/
 build/
 native/bin/
 native/build/
+native/essvb_fast/target/
+native/essvb_fast/bin/
+dist/
 
 # Sensitive runtime secrets, pairing certificates & local configs
 *.p12

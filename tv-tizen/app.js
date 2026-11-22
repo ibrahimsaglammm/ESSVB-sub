@@ -214,7 +214,10 @@
     el.style.color = s.textColor === 'yellow' ? '#FFE135' : (s.textColor === 'cyan' ? '#38BDF8' : '#FFFFFF');
 
     var alpha = Math.max(0, Math.min(100, typeof s.background === 'number' ? s.background : 88)) / 100;
-    el.style.background = 'rgba(10, 13, 18, ' + alpha + ')';
+    el.style.background = alpha <= 0.02 ? 'transparent' : ('rgba(10, 13, 18, ' + alpha + ')');
+    el.style.textShadow = alpha < 0.5
+      ? '0 0 6px #000, 0 2px 6px #000, -1px -1px 0 #000, 1px 1px 0 #000'
+      : '0 2px 4px rgba(0, 0, 0, 0.85)';
 
     var bodyCls = [];
     if (alpha < 0.5) bodyCls.push('thin-bg');
@@ -257,15 +260,30 @@
 
   function paintSpeakers(el, text, speakers) {
     el.textContent = text;
-    if (!speakers || !speakers.length) return;
-    var sp = speakers[0];
-    if (text.indexOf(sp.name + ':') === 0) {
+    if (speakers && speakers.length) {
+      var sp = speakers[0];
+      if (text.indexOf(sp.name + ':') === 0) {
+        el.textContent = '';
+        var span = document.createElement('span');
+        span.style.color = sp.color;
+        span.textContent = sp.name + ': ';
+        el.appendChild(span);
+        el.appendChild(document.createTextNode(text.slice(sp.name.length + 1).replace(/^\s+/, '')));
+        return;
+      }
+    }
+
+    var parts = text.split('\n');
+    if (parts.length > 1 && (/^[-—•]\s/.test(parts[0]) || /^[-—•]\s/.test(parts[1]))) {
+      var palette = ['#F5B83D', '#38BDF8', '#34D399'];
       el.textContent = '';
-      var span = document.createElement('span');
-      span.style.color = sp.color;
-      span.textContent = sp.name + ': ';
-      el.appendChild(span);
-      el.appendChild(document.createTextNode(text.slice(sp.name.length + 1).replace(/^\s+/, '')));
+      for (var i = 0; i < parts.length; i++) {
+        if (i > 0) el.appendChild(document.createElement('br'));
+        var lineSpan = document.createElement('span');
+        lineSpan.style.color = palette[i % palette.length];
+        lineSpan.textContent = parts[i];
+        el.appendChild(lineSpan);
+      }
     }
   }
 

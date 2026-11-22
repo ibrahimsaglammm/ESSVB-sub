@@ -215,18 +215,44 @@
 
           <Border Classes="card">
             <StackPanel Spacing="10">
-              <TextBlock Text="PC Monitör Overlay &amp; Altyazı Görünümü" FontSize="15" FontWeight="Bold" Foreground="#38BDF8" />
-              <Grid ColumnDefinitions="130,*" RowDefinitions="Auto,Auto">
-                <TextBlock Grid.Row="0" Grid.Column="0" Text="Yazı Boyutu" VerticalAlignment="Center" Foreground="#9CA3AF" Margin="0,0,8,8" />
-                <Slider Grid.Row="0" Grid.Column="1" Minimum="28" Maximum="72" Value="{Binding FontSize}" Margin="0,0,0,8" />
-
-                <TextBlock Grid.Row="1" Grid.Column="0" Text="Yazı Rengi" VerticalAlignment="Center" Foreground="#9CA3AF" Margin="0,0,8,0" />
-                <ComboBox Grid.Row="1" Grid.Column="1" ItemsSource="{Binding TextColors}" SelectedItem="{Binding TextColor}" HorizontalAlignment="Stretch" />
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Text="PC Monitör Overlay &amp; Altyazı Görünümü" FontSize="15" FontWeight="Bold" Foreground="#38BDF8" />
+                <TextBlock Grid.Column="1" Text="{Binding OverlaySizeLabel}" FontSize="11.5" Foreground="#34D399" VerticalAlignment="Center" />
               </Grid>
 
               <WrapPanel Orientation="Horizontal">
-                <CheckBox IsChecked="{Binding ClickThroughOverlay}" Content="Tıklamaları Oyuna Geçir (Kilitli)" Margin="0,0,16,4" />
-                <CheckBox IsChecked="{Binding StackPrevious}" Content="Önceki Satırları Üstte Tut" Margin="0,0,16,4" />
+                <Button Classes="primary" Content="{Binding OverlayEditButtonLabel}" Click="OnToggleOverlayEdit" Margin="0,0,8,4" />
+                <Button Classes="secondary" Content="Önizleme Göster" Click="OnShowOverlayPreview" Margin="0,0,8,4" />
+                <Button Classes="secondary" Content="Konumu Sıfırla" Click="OnResetOverlayBounds" Margin="0,0,0,4" />
+              </WrapPanel>
+
+              <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto">
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Yazı Boyutu" VerticalAlignment="Center" Foreground="#9CA3AF" Margin="0,0,8,6" />
+                <Slider Grid.Row="0" Grid.Column="1" Minimum="24" Maximum="76" Value="{Binding FontSize}" Margin="0,0,0,6" />
+
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="Arka Plan Karartısı" VerticalAlignment="Center" Foreground="#9CA3AF" Margin="0,0,8,6" />
+                <Grid Grid.Row="1" Grid.Column="1" ColumnDefinitions="*,Auto" Margin="0,0,0,6">
+                  <Slider Minimum="0" Maximum="100" Value="{Binding BackgroundOpacity}" Margin="0,0,10,0" />
+                  <TextBlock Grid.Column="1" Text="{Binding BackgroundOpacityLabel}" VerticalAlignment="Center" FontSize="12" Foreground="#F5B83D" MinWidth="92" />
+                </Grid>
+
+                <TextBlock Grid.Row="2" Grid.Column="0" Text="Pencere Genişliği" VerticalAlignment="Center" Foreground="#9CA3AF" Margin="0,0,8,6" />
+                <Slider Grid.Row="2" Grid.Column="1" Minimum="420" Maximum="1920" Value="{Binding OverlayWidth}" Margin="0,0,0,6" />
+
+                <TextBlock Grid.Row="3" Grid.Column="0" Text="Pencere Yüksekliği" VerticalAlignment="Center" Foreground="#9CA3AF" Margin="0,0,8,6" />
+                <Slider Grid.Row="3" Grid.Column="1" Minimum="100" Maximum="540" Value="{Binding OverlayHeight}" Margin="0,0,0,6" />
+
+                <TextBlock Grid.Row="4" Grid.Column="0" Text="Yazı Rengi" VerticalAlignment="Center" Foreground="#9CA3AF" Margin="0,0,8,6" />
+                <ComboBox Grid.Row="4" Grid.Column="1" ItemsSource="{Binding TextColors}" SelectedItem="{Binding TextColor}" HorizontalAlignment="Stretch" Margin="0,0,0,6" />
+
+                <TextBlock Grid.Row="5" Grid.Column="0" Text="Arka Plan Biçimi" VerticalAlignment="Center" Foreground="#9CA3AF" Margin="0,0,8,0" />
+                <ComboBox Grid.Row="5" Grid.Column="1" ItemsSource="{Binding BackgroundShapes}" SelectedItem="{Binding BackgroundShape}" HorizontalAlignment="Stretch" />
+              </Grid>
+
+              <WrapPanel Orientation="Horizontal">
+                <CheckBox IsChecked="{Binding ClickThroughOverlay}" Content="Tıklamaları Oyuna Geçir (Kilitli)" Margin="0,0,14,4" />
+                <CheckBox IsChecked="{Binding IsBoldText}" Content="Kalın Yazı" Margin="0,0,14,4" />
+                <CheckBox IsChecked="{Binding StackPrevious}" Content="Önceki Satırları Üstte Tut" Margin="0,0,14,4" />
                 <CheckBox IsChecked="{Binding SpeakerColors}" Content="Konuşana Göre Renklendir" />
               </WrapPanel>
 

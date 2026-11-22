@@ -192,6 +192,66 @@ public sealed class EssvbSubTests
     }
 
     [Fact]
+    public void Gemini_CatalogDefaultsToPricePerformanceModel_And_DiscoveryFiltersMediaModels()
+    {
+        var gemini = AiProviderCatalog.Get(AiProviderKind.Gemini);
+        Assert.Equal("gemini-3.5-flash-lite", gemini.DefaultModel);
+        Assert.Contains(gemini.RecommendedPresets, p => p.Id == "gemini-3.5-flash-lite" && p.Label.Contains("F/P"));
+        Assert.Contains(gemini.RecommendedPresets, p => p.Id == "gemini-3.8-flash");
+
+        var grok = AiProviderCatalog.Get(AiProviderKind.Grok);
+        Assert.Equal("grok-3-mini", grok.DefaultModel);
+
+        const string geminiListJson = """
+            {
+              "models": [
+                { "name": "models/gemini-3.5-flash-lite", "supportedGenerationMethods": ["generateContent"] },
+                { "name": "models/gemini-2.5-flash", "supportedGenerationMethods": ["generateContent"] },
+                { "name": "models/gemini-3.1-flash-image", "supportedGenerationMethods": ["generateContent"] },
+                { "name": "models/gemini-3.5-transcribe", "supportedGenerationMethods": ["generateContent"] },
+                { "name": "models/gemini-3.8-flash", "supportedGenerationMethods": ["generateContent"] }
+              ]
+            }
+            """;
+
+        var parsed = ModelDiscoveryService.ParseGeminiModelsJson(geminiListJson);
+        Assert.Equal(2, parsed.Count);
+        Assert.Equal("gemini-3.5-flash-lite", parsed[0].Id);
+        Assert.Equal("gemini-3.8-flash", parsed[1].Id);
+    }
+
+    [Fact]
+    public void RustFastAccel_MatchesExpectedOcrPreprocessingAndSignatureOutputs()
+    {
+        if (File.Exists(Path.Combine(AppContext.BaseDirectory, OperatingSystem.IsWindows() ? "essvb_fast.dll" : "libessvb_fast.so")))
+            Assert.True(RustFastAccel.IsAvailable);
+
+        var frame = Frame.Blank(160, 80);
+        for (int x = 20; x <= 60; x++)
+        {
+            int p = (30 * frame.Stride) + (x * 4);
+            frame.Pixels[p] = 248; frame.Pixels[p + 1] = 248; frame.Pixels[p + 2] = 248; frame.Pixels[p + 3] = 255;
+            int sp = (32 * frame.Stride) + ((x + 2) * 4);
+            frame.Pixels[sp] = 12; frame.Pixels[sp + 1] = 12; frame.Pixels[sp + 2] = 12; frame.Pixels[sp + 3] = 255;
+        }
+
+        var shadow = OcrPreprocessor.ShadowText(frame);
+        Assert.Equal(0, shadow.Pixels[(30 * frame.Stride) + (30 * 4)]);
+        Assert.Equal(255, shadow.Pixels[0]);
+
+        var white = OcrPreprocessor.WhiteTextOnly(frame);
+        Assert.Equal(0, white.Pixels[(30 * frame.Stride) + (30 * 4)]);
+
+        var up = OcrPreprocessor.Upscale2x(frame);
+        Assert.Equal(320, up.Width);
+        Assert.Equal(160, up.Height);
+
+        var sig = RegionCropper.ComputeSignature(frame);
+        Assert.Equal(RegionCropper.SignatureWidth * RegionCropper.SignatureHeight, sig.Length);
+        Assert.Equal(0.0, RegionCropper.DifferenceRatio(sig, sig));
+    }
+
+    [Fact]
     public void TizenPackageAdapter_SupportsCu8500_Mu9000_AndSafeBase64Payload()
     {
         Assert.Equal("7.0", TizenPackageAdapter.ResolvePlatformVersion(null, SamsungTvModel.Cu8500_65));

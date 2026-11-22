@@ -32,6 +32,8 @@ public sealed class EssvbSettings
     public double OverlayLeft { get; set; } = 160;
     public double OverlayTop { get; set; } = 820;
     public double OverlayWidth { get; set; } = 1100;
+    public double OverlayHeight { get; set; } = 240;
+    public bool HasSavedOverlayPosition { get; set; }
     public bool UseScreenRegion { get; set; }
     public int ScreenX { get; set; }
     public int ScreenY { get; set; }

@@ -14,4 +14,13 @@
     <InternalsVisibleTo Include="EssvbSub.Tests" />
   </ItemGroup>
 
+  <ItemGroup Condition="Exists('$(MSBuildThisFileDirectory)..\..\native\essvb_fast\bin\essvb_fast.dll')">
+    <None Include="$(MSBuildThisFileDirectory)..\..\native\essvb_fast\bin\essvb_fast.dll" Link="essvb_fast.dll"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup Condition="Exists('$(MSBuildThisFileDirectory)..\..\native\essvb_fast\bin\libessvb_fast.so')">
+    <None Include="$(MSBuildThisFileDirectory)..\..\native\essvb_fast\bin\libessvb_fast.so" Link="libessvb_fast.so"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

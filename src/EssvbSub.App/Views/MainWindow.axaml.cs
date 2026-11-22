@@ -28,15 +28,27 @@ public partial class MainWindow : Window
     {
         if (Vm is not { } vm) return;
 
+        OverlayWindow EnsureOverlay()
+        {
+            if (_overlayWindow is null)
+            {
+                _overlayWindow = new OverlayWindow();
+                _overlayWindow.BoundsChangedByUser += (l, t, w, h) => vm.SyncOverlayBoundsFromUser(l, t, w, h);
+                _overlayWindow.ApplyBounds(vm.OverlayLeft, vm.OverlayTop, vm.OverlayWidth, vm.OverlayHeight, vm.HasSavedOverlayPosition);
+            }
+            _overlayWindow.ApplyStyle(vm.CurrentStyle);
+            return _overlayWindow;
+        }
+
         vm.OverlayVisibilityChanged += visible =>
         {
-            if (visible)
+            if (visible || vm.IsOverlayEditMode)
             {
-                _overlayWindow ??= new OverlayWindow();
-                _overlayWindow.ApplyStyle(vm.CurrentStyle);
-                if (!_overlayWindow.IsVisible)
-                    _overlayWindow.Show();
-                _overlayWindow.SetClickThrough(vm.ClickThroughOverlay);
+                var ov = EnsureOverlay();
+                if (!ov.IsVisible)
+                    ov.Show();
+                ov.SetEditMode(vm.IsOverlayEditMode);
+                ov.SetClickThrough(vm.ClickThroughOverlay);
             }
             else
             {
@@ -44,6 +56,25 @@ public partial class MainWindow : Window
             }
         };
 
+        vm.OverlayEditModeChanged += editing =>
+        {
+            if (editing)
+            {
+                var ov = EnsureOverlay();
+                if (!ov.IsVisible)
+                    ov.Show();
+                ov.SetEditMode(true);
+            }
+            else if (_overlayWindow is not null)
+            {
+                _overlayWindow.SetEditMode(false);
+                _overlayWindow.SetClickThrough(vm.ClickThroughOverlay);
+                if (!vm.IsRunning)
+                    _overlayWindow.Hide();
+            }
+        };
+
+        vm.OverlayBoundsChanged += (l, t, w, h, hasPos) => _overlayWindow?.ApplyBounds(l, t, w, h, hasPos);
         vm.OverlayClickThroughChanged += clickThrough => _overlayWindow?.SetClickThrough(clickThrough);
         vm.OverlayStyleChanged += style => _overlayWindow?.ApplyStyle(style);
         vm.OverlayEventReceived += ev => _overlayWindow?.HandleEvent(ev);
@@ -74,4 +105,7 @@ public partial class MainWindow : Window
     private void OnRejectTvPairing(object? sender, RoutedEventArgs e) => Vm?.ApproveTvPairing(false);
     private async void OnRefreshModels(object? sender, RoutedEventArgs e) { if (Vm is not null) await Vm.RefreshModelsAsync(); }
     private async void OnTestTranslation(object? sender, RoutedEventArgs e) { if (Vm is not null) await Vm.TestTranslationConnectionAsync(); }
+    private void OnToggleOverlayEdit(object? sender, RoutedEventArgs e) { if (Vm is not null) Vm.IsOverlayEditMode = !Vm.IsOverlayEditMode; }
+    private void OnShowOverlayPreview(object? sender, RoutedEventArgs e) => Vm?.ShowOverlayPreview();
+    private void OnResetOverlayBounds(object? sender, RoutedEventArgs e) => Vm?.ResetOverlayBounds();
 }

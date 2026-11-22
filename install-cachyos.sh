@@ -21,6 +21,11 @@ else
   echo "Uyari: pacman bulunamadi. dotnet-sdk (10), tesseract, pipewire-pulse, grim ve ffmpeg paketlerinin kurulu oldugundan emin olun."
 fi
 
+if command -v cargo >/dev/null 2>&1 && [ -f "$REPO_DIR/native/essvb_fast/Cargo.toml" ]; then
+  echo "[2a/3] Rust hizlandirma kutuphanesi (libessvb_fast.so) derleniyor..."
+  (cd "$REPO_DIR/native/essvb_fast" && cargo build --release && mkdir -p bin && cp -f target/release/libessvb_fast.so bin/libessvb_fast.so)
+fi
+
 echo "[2/3] ESSVB-sub derleniyor (Release)..."
 dotnet restore ESSVB-sub.slnx
 dotnet build ESSVB-sub.slnx -c Release --no-restore

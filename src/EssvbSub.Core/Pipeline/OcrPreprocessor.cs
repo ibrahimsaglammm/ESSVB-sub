@@ -18,6 +18,9 @@ public static class OcrPreprocessor
         if (!image.IsConsistent || image.Width == 0 || image.Height == 0)
             return image;
 
+        if (RustFastAccel.TryAutoLevel(image, out var fast))
+            return fast;
+
         Span<int> histogram = stackalloc int[256];
         for (int y = 0; y < image.Height; y++)
         {
@@ -92,6 +95,9 @@ public static class OcrPreprocessor
         if (!image.IsConsistent || image.Width == 0 || image.Height == 0)
             return image;
 
+        if (RustFastAccel.TryExtractOutlinedText(image, leftPad, bottomRightPad, minBright, maxSpread, darkLuma, includeColored, directionalShadow, out var fast))
+            return fast;
+
         int w = image.Width;
         int h = image.Height;
         var bright = new bool[w * h];
@@ -160,7 +166,7 @@ public static class OcrPreprocessor
         {
             return image;
         }
-        return image.Scaled(2);
+        return RustFastAccel.TryUpscale2x(image, out var fast) ? fast : image.Scaled(2);
     }
 
     public static Frame AddPadding(Frame image, int pad = 16)
@@ -237,6 +243,9 @@ public static class RegionCropper
         if (!regionImage.IsConsistent || regionImage.Width == 0 || regionImage.Height == 0)
             return signature;
 
+        if (RustFastAccel.TryComputeSignature(regionImage, signature))
+            return signature;
+
         for (int y = 0; y < SignatureHeight; y++)
         {
             int srcY = y * regionImage.Height / SignatureHeight;
@@ -269,6 +278,9 @@ public static class RegionCropper
             y0 = Math.Clamp((int)Math.Floor(region.Top * SignatureHeight), 0, SignatureHeight - 1);
             y1 = Math.Clamp((int)Math.Ceiling(region.Bottom * SignatureHeight), y0 + 1, SignatureHeight);
         }
+
+        if (RustFastAccel.TryDifferenceRatio(a, b, x0, x1, y0, y1, out double fastRatio))
+            return fastRatio;
 
         long diffSum = 0;
         int count = 0;

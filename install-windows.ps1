@@ -38,6 +38,23 @@ $ExePath = Join-Path $RepoRoot "src\EssvbSub.App\bin\Release\net10.0\ESSVB-sub.e
 $NeedBuild = (-not $LaunchOnly) -or (-not (Test-Path $ExePath))
 
 if ($NeedBuild) {
+    $RustDir = Join-Path $RepoRoot "native\essvb_fast"
+    $CargoCmd = Get-Command cargo -ErrorAction SilentlyContinue
+    if (-not $CargoCmd -and (Test-Path "$env:USERPROFILE\.cargo\bin\cargo.exe")) {
+        $env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"
+        $CargoCmd = Get-Command cargo -ErrorAction SilentlyContinue
+    }
+    if ($CargoCmd -and (Test-Path (Join-Path $RustDir "Cargo.toml"))) {
+        Write-Host "[2a/3] Rust hizlandirma modulu (essvb_fast.dll) derleniyor..." -ForegroundColor Cyan
+        Push-Location $RustDir
+        & cargo build --release
+        if ($LASTEXITCODE -eq 0 -and (Test-Path "target\release\essvb_fast.dll")) {
+            New-Item -ItemType Directory -Force -Path "bin" | Out-Null
+            Copy-Item "target\release\essvb_fast.dll" "bin\essvb_fast.dll" -Force
+        }
+        Pop-Location
+    }
+
     Write-Host "[2/3] Paketler indiriliyor ve ESSVB-sub derleniyor (Release)..." -ForegroundColor Cyan
     & dotnet restore (Join-Path $RepoRoot "ESSVB-sub.slnx")
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

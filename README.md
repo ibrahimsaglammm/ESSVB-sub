@@ -50,12 +50,13 @@ chmod +x install-cachyos.sh
 
 ![PlayStation Kurulum Rehberi](docs/images/03-playstation-kurulum.png)
 
-### 3. PC Oyun Modu & Film/Dizi Modu + Çeviri Modelleri
-- **PC Oyun Modu (Steam, Epic Games, GOG):** Tıklamaları oyuna geçiren (`WS_EX_NOACTIVATE` / `WS_EX_TRANSPARENT` & X11 `XShape`) şeffaf PC monitör overlay'i.
-- **Film & Dizi Modu (Netflix, Amazon Prime, Disney+):** Açık pencerede OCR; DRM korumalı siyah ekranda **WASAPI / PipeWire Loopback** sistem sesi dinleme (`whisper-cli` veya Gemini Multimodal Audio).
-- **Yerel & Yüksek AI Seçenekleri (Otomatik Model Tarama & Seçici):**
-  - **Yerel:** **Ollama** (yerel `/api/chat` + `think: false` hızlandırmalı, yüklü tüm modelleri otomatik tarayıp listeden seçtiren destek), **LM Studio**, **CTranslate2 (`opus-mt-en-tr`)**
-  - **Bulut Yüksek AI:** **Google Gemini**, **xAI Grok**, **OpenAI ChatGPT**, **Anthropic Claude**, **DeepL** — güncel model listesi seçicisi ve API anahtarıyla canlı model tarama + isteğe bağlı elle model adı girme sekmesi.
+### 3. PC Oyun Modu & Film/Dizi Modu + Özelleştirilebilir Overlay & Rust Hızlandırma
+- **PC Oyun Modu (Steam, Epic Games, GOG):** Fareyle **sürüklenip köşelerden boyutlandırılabilen**, **`%0` (tam karartısız + siyah dış konturlu) – `%100`** karartı ayarlı, farklı konuşmacıları otomatik ayıran renkli şeffaf PC monitör overlay'i.
+- **Film & Dizi Modu (Netflix, Amazon Prime, Disney+, YouTube):** Açık pencerede DPI-uyumlu OCR; DRM korumalı siyah ekranda **WASAPI / PipeWire Loopback** sistem sesi dinleme (`whisper-cli` veya `gemini-3.5-flash-lite` Audio).
+- **Rust Yerel Hızlandırma (`native/essvb_fast`):** Görüntü ölçekleme, kontrast normalizasyonu (`AutoLevel`), integral gölge metin ayrıştırma (`ShadowText`) ve algısal değişim imzası çekirdekleri native Rust (`cdylib`) ile çalışır (`cargo` yoksa otomatik C# yedeği devreye girer).
+- **Yerel & Yüksek AI Seçenekleri (Fiyat/Performans & Otomatik Tarama):**
+  - **Yerel:** **Ollama** (yerel `/api/chat` + `think: false` hızlandırmalı, yüklü tüm modelleri otomatik tarayıp listeden seçtiren destek — önerilen `gemma3:4b-it-q8_0`), **LM Studio**, **CTranslate2 (`opus-mt-en-tr`)**
+  - **Bulut Yüksek AI:** **Google Gemini** (`gemini-3.5-flash-lite` ★ F/P önerilen, `gemini-3.8-flash`, `gemini-3.1-pro-preview`), **xAI Grok** (`grok-3-mini`), **OpenAI ChatGPT** (`gpt-4.1-mini`), **Anthropic Claude** (`claude-3-5-haiku-latest`), **DeepL** — güncel F/P etiketli seçici + API anahtarıyla canlı model tarama.
 
 ![Model ve Mod Seçim Rehberi](docs/images/04-model-ve-mod-secimi.png)
 

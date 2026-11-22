@@ -32,7 +32,7 @@ public sealed partial class UniversalAiTranslator : ITextTranslator
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
     };
 
-    private static readonly HttpClient SharedCloudHttp = new() { Timeout = TimeSpan.FromSeconds(8) };
+    private static readonly HttpClient SharedCloudHttp = new() { Timeout = TimeSpan.FromSeconds(15) };
     private static readonly HttpClient SharedLocalHttp = new(new SocketsHttpHandler
     {
         UseProxy = false,
@@ -149,7 +149,12 @@ public sealed partial class UniversalAiTranslator : ITextTranslator
             using var resp = await _http.SendAsync(req, cts.Token).ConfigureAwait(false);
             string body = await resp.Content.ReadAsStringAsync(cts.Token).ConfigureAwait(false);
             if (!resp.IsSuccessStatusCode)
-                return new TranslationTestResult(false, $"HTTP {(int)resp.StatusCode} ({resp.ReasonPhrase})");
+            {
+                string detail = TryExtractApiErrorMessage(body);
+                return new TranslationTestResult(false, string.IsNullOrWhiteSpace(detail)
+                    ? $"HTTP {(int)resp.StatusCode} ({resp.ReasonPhrase})"
+                    : $"HTTP {(int)resp.StatusCode}: {detail}");
+            }
 
             string sample = CleanModelOutput(ExtractResponseText(_provider, body));
             return string.IsNullOrWhiteSpace(sample)
@@ -445,6 +450,24 @@ public sealed partial class UniversalAiTranslator : ITextTranslator
             return text;
 
         return await _fallback.TranslateAsync(text, context, mediaTitle, characterNames, ct).ConfigureAwait(false);
+    }
+
+    private static string TryExtractApiErrorMessage(string body)
+    {
+        try
+        {
+            var node = JsonNode.Parse(body);
+            string? msg = node?["error"]?["message"]?.GetValue<string>()
+                       ?? node?["message"]?.GetValue<string>();
+            if (string.IsNullOrWhiteSpace(msg))
+                return "";
+            msg = msg.Replace('\r', ' ').Replace('\n', ' ').Trim();
+            return msg.Length > 200 ? msg[..200] + "…" : msg;
+        }
+        catch
+        {
+            return "";
+        }
     }
 
     [GeneratedRegex(@"</?s>|<\|[A-Za-z0-9_]{1,32}\|>|</?(?:start|end)_of_turn>|</?(?:eos|bos|pad)>")]

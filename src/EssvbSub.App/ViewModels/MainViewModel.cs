@@ -50,6 +50,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     private bool _useCustomModelEntry;
     private string _modelDiscoveryStatus = "";
     private bool _syncingModels;
+    private bool _isOverlayEditMode;
 
     public MainViewModel()
     {
@@ -73,6 +74,9 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         });
         _server.EventBroadcast += ev => Dispatcher.UIThread.Post(() => OverlayEventReceived?.Invoke(ev));
 
+        if (RustFastAccel.IsAvailable)
+            AppendLog("Hızlandırma: Yerel Rust motoru aktif (essvb_fast).");
+
         _ = StartServerSafeAsync();
         RefreshWindows();
         _ = RefreshModelsAsync();
@@ -83,6 +87,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     public event Action<SubtitleStyle>? OverlayStyleChanged;
     public event Action<bool>? OverlayVisibilityChanged;
     public event Action<bool>? OverlayClickThroughChanged;
+    public event Action<bool>? OverlayEditModeChanged;
+    public event Action<double, double, double, double, bool>? OverlayBoundsChanged;
     public event Func<Task<(CropRegion Region, int X, int Y, int Width, int Height)?>>? SelectRegionRequested;
 
     public ObservableCollection<WindowTarget> AvailableWindows { get; } = [];
@@ -101,6 +107,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     public IReadOnlyList<OutputTarget> OutputTargets { get; } = [OutputTarget.SamsungTv, OutputTarget.PcOverlay, OutputTarget.Both];
     public IReadOnlyList<int> HdmiPorts { get; } = [1, 2, 3, 4];
     public IReadOnlyList<SubtitleTextColor> TextColors { get; } = [SubtitleTextColor.White, SubtitleTextColor.Yellow, SubtitleTextColor.Cyan];
+    public IReadOnlyList<SubtitleBackgroundShape> BackgroundShapes { get; } = [SubtitleBackgroundShape.Fit, SubtitleBackgroundShape.Band];
 
     public OperatingMode Mode
     {
@@ -314,6 +321,26 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     }
 
     public SubtitleStyle CurrentStyle => _settings.Style;
+    public double OverlayLeft => _settings.OverlayLeft;
+    public double OverlayTop => _settings.OverlayTop;
+    public bool HasSavedOverlayPosition => _settings.HasSavedOverlayPosition;
+
+    public bool IsOverlayEditMode
+    {
+        get => _isOverlayEditMode;
+        set
+        {
+            if (_isOverlayEditMode == value) return;
+            _isOverlayEditMode = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(OverlayEditButtonLabel));
+            OverlayEditModeChanged?.Invoke(value);
+        }
+    }
+
+    public string OverlayEditButtonLabel => IsOverlayEditMode
+        ? "Düzenlemeyi Kilitle (Tamam)"
+        : "Altyazı Penceresini Taşı / Boyutlandır";
 
     public bool ClickThroughOverlay
     {
@@ -336,6 +363,105 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             OverlayStyleChanged?.Invoke(_settings.Style);
             SaveAndNotify();
         }
+    }
+
+    public int BackgroundOpacity
+    {
+        get => _settings.Style.BackgroundOpacity;
+        set
+        {
+            _settings.Style = _settings.Style with { BackgroundOpacity = Math.Clamp(value, 0, 100) };
+            _server.SendStyle(_settings.Style);
+            OverlayStyleChanged?.Invoke(_settings.Style);
+            SaveAndNotify(nameof(BackgroundOpacity), nameof(BackgroundOpacityLabel));
+        }
+    }
+
+    public string BackgroundOpacityLabel => _settings.Style.BackgroundOpacity == 0
+        ? "%0 (Karartı Yok)"
+        : $"%{_settings.Style.BackgroundOpacity}";
+
+    public SubtitleBackgroundShape BackgroundShape
+    {
+        get => _settings.Style.BackgroundShape;
+        set
+        {
+            _settings.Style = _settings.Style with { BackgroundShape = value };
+            _server.SendStyle(_settings.Style);
+            OverlayStyleChanged?.Invoke(_settings.Style);
+            SaveAndNotify();
+        }
+    }
+
+    public bool IsBoldText
+    {
+        get => _settings.Style.Bold;
+        set
+        {
+            _settings.Style = _settings.Style with { Bold = value };
+            _server.SendStyle(_settings.Style);
+            OverlayStyleChanged?.Invoke(_settings.Style);
+            SaveAndNotify();
+        }
+    }
+
+    public double OverlayWidth
+    {
+        get => _settings.OverlayWidth;
+        set
+        {
+            double clamped = Math.Clamp(Math.Round(value), 420, 2200);
+            if (Math.Abs(_settings.OverlayWidth - clamped) < 0.5) return;
+            _settings.OverlayWidth = clamped;
+            SaveAndNotify(nameof(OverlayWidth), nameof(OverlaySizeLabel));
+            OverlayBoundsChanged?.Invoke(_settings.OverlayLeft, _settings.OverlayTop, _settings.OverlayWidth, _settings.OverlayHeight, _settings.HasSavedOverlayPosition);
+        }
+    }
+
+    public double OverlayHeight
+    {
+        get => _settings.OverlayHeight;
+        set
+        {
+            double clamped = Math.Clamp(Math.Round(value), 100, 540);
+            if (Math.Abs(_settings.OverlayHeight - clamped) < 0.5) return;
+            _settings.OverlayHeight = clamped;
+            SaveAndNotify(nameof(OverlayHeight), nameof(OverlaySizeLabel));
+            OverlayBoundsChanged?.Invoke(_settings.OverlayLeft, _settings.OverlayTop, _settings.OverlayWidth, _settings.OverlayHeight, _settings.HasSavedOverlayPosition);
+        }
+    }
+
+    public string OverlaySizeLabel => $"{(int)_settings.OverlayWidth} × {(int)_settings.OverlayHeight} px";
+
+    public void SyncOverlayBoundsFromUser(double left, double top, double width, double height)
+    {
+        _settings.OverlayLeft = left;
+        _settings.OverlayTop = top;
+        _settings.OverlayWidth = Math.Clamp(Math.Round(width), 420, 2200);
+        _settings.OverlayHeight = Math.Clamp(Math.Round(height), 100, 540);
+        _settings.HasSavedOverlayPosition = true;
+        SettingsStore.Save(_settings);
+        OnPropertyChanged(nameof(OverlayWidth));
+        OnPropertyChanged(nameof(OverlayHeight));
+        OnPropertyChanged(nameof(OverlaySizeLabel));
+    }
+
+    public void ResetOverlayBounds()
+    {
+        _settings.OverlayWidth = 1100;
+        _settings.OverlayHeight = 240;
+        _settings.HasSavedOverlayPosition = false;
+        SaveAndNotify(nameof(OverlayWidth), nameof(OverlayHeight), nameof(OverlaySizeLabel));
+        OverlayBoundsChanged?.Invoke(_settings.OverlayLeft, _settings.OverlayTop, _settings.OverlayWidth, _settings.OverlayHeight, false);
+        AppendLog("Altyazı penceresi konumu ve boyutu varsayılana sıfırlandı.");
+    }
+
+    public void ShowOverlayPreview()
+    {
+        OverlayVisibilityChanged?.Invoke(true);
+        _server.SendStyle(_settings.Style);
+        _server.SendSubtitle("ATREUS: Bak şuraya, biri yaklaşıyor!", "ATREUS: Look over there, someone is coming!", durationMs: 4500);
+        _server.SendSubtitle("KRATOS: Yanımda kal. Yolculuğumuz yeni başlıyor.", "KRATOS: Stay close. Our journey has just begun.", durationMs: 4500);
     }
 
     public SubtitleTextColor TextColor
@@ -474,11 +600,11 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
                     AvailableModels.FirstOrDefault(m => string.Equals(m.Id, ModelName, StringComparison.OrdinalIgnoreCase))
                     ?? AvailableModels.FirstOrDefault(m => string.Equals(StripLatestTag(m.Id), StripLatestTag(ModelName), StringComparison.OrdinalIgnoreCase));
 
-                if (match is null && res.LiveQueried && AiProviderCatalog.Get(provider).IsLocal)
+                if (match is null && (res.LiveQueried || provider == AiProviderKind.Gemini))
                 {
                     match = AvailableModels[0];
                     ModelName = match.Id;
-                    AppendLog($"Yerel model otomatik seçildi: {match.Id}");
+                    AppendLog($"Model otomatik seçildi: {match.Id}");
                 }
                 else if (match is not null && !string.Equals(match.Id, ModelName, StringComparison.Ordinal))
                 {
