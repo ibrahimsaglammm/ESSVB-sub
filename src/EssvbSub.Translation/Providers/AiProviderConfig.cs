@@ -41,16 +41,16 @@ public static class AiProviderCatalog
             ["opus-mt-en-tr"], false),
 
         new(AiProviderKind.Gemini, "Google Gemini (Yüksek AI)", false, "https://generativelanguage.googleapis.com/v1beta", "gemini-2.5-flash",
-            ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-pro"], true),
+            ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-pro", "gemini-2.0-flash"], true),
 
         new(AiProviderKind.Grok, "xAI Grok (Yüksek AI)", false, "https://api.x.ai/v1", "grok-3-mini",
-            ["grok-3-mini", "grok-3", "grok-2-latest"], true),
+            ["grok-3-mini", "grok-3", "grok-3-fast", "grok-2-latest"], true),
 
         new(AiProviderKind.OpenAi, "OpenAI ChatGPT (Yüksek AI)", false, "https://api.openai.com/v1", "gpt-4o-mini",
-            ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-4.1"], true),
+            ["gpt-4o-mini", "gpt-4.1-mini", "gpt-4.1", "gpt-4o"], true),
 
         new(AiProviderKind.Claude, "Anthropic Claude (Yüksek AI)", false, "https://api.anthropic.com/v1", "claude-3-5-haiku-latest",
-            ["claude-3-5-haiku-latest", "claude-3-7-sonnet-latest"], true),
+            ["claude-3-5-haiku-latest", "claude-3-7-sonnet-latest", "claude-sonnet-4-20250514"], true),
 
         new(AiProviderKind.DeepL, "DeepL (Bulut Çeviri)", false, "https://api-free.deepl.com/v2", "deepl-free",
             ["deepl-free", "deepl-pro"], true),
@@ -61,6 +61,29 @@ public static class AiProviderCatalog
 
     public static AiProviderDescriptor Get(AiProviderKind kind) =>
         All.First(p => p.Kind == kind);
+
+    public static Uri ResolveOllamaRootUri(string baseUrl)
+    {
+        string trimmed = string.IsNullOrWhiteSpace(baseUrl)
+            ? "http://127.0.0.1:11434"
+            : baseUrl.Trim().TrimEnd('/');
+        if (!trimmed.Contains("://", StringComparison.Ordinal))
+            trimmed = "http://" + trimmed;
+
+        foreach (var suffix in new[] { "/v1/chat/completions", "/chat/completions", "/api/chat", "/api/tags", "/v1" })
+        {
+            if (trimmed.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+            {
+                trimmed = trimmed[..^suffix.Length].TrimEnd('/');
+                break;
+            }
+        }
+
+        var builder = new UriBuilder(trimmed);
+        if (string.Equals(builder.Host, "localhost", StringComparison.OrdinalIgnoreCase))
+            builder.Host = "127.0.0.1";
+        return builder.Uri;
+    }
 
     public static Uri ResolveChatCompletionsUri(string baseUrl)
     {

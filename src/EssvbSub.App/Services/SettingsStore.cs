@@ -32,6 +32,11 @@ public sealed class EssvbSettings
     public double OverlayLeft { get; set; } = 160;
     public double OverlayTop { get; set; } = 820;
     public double OverlayWidth { get; set; } = 1100;
+    public bool UseScreenRegion { get; set; }
+    public int ScreenX { get; set; }
+    public int ScreenY { get; set; }
+    public int ScreenWidth { get; set; }
+    public int ScreenHeight { get; set; }
     public CropRegion ScanRegion { get; set; } = CropRegion.Default;
     public SubtitleStyle Style { get; set; } = new();
 }

@@ -200,11 +200,36 @@ public sealed partial class UniversalAiTranslator : ITextTranslator
 
         return _provider switch
         {
+            AiProviderKind.Ollama => BuildOllamaNativeRequest(systemPrompt, userPrompt),
             AiProviderKind.Gemini => BuildGeminiRequest(systemPrompt, userPrompt),
             AiProviderKind.Claude => BuildClaudeRequest(systemPrompt, userPrompt),
             AiProviderKind.DeepL => BuildDeepLRequest(text, context),
             _ => BuildOpenAiCompatibleRequest(systemPrompt, userPrompt)
         };
+    }
+
+    private HttpRequestMessage BuildOllamaNativeRequest(string system, string user)
+    {
+        Uri root = AiProviderCatalog.ResolveOllamaRootUri(_endpoint);
+        var req = new HttpRequestMessage(HttpMethod.Post, root.AbsoluteUri.TrimEnd('/') + "/api/chat");
+        var body = new JsonObject
+        {
+            ["model"] = _model,
+            ["messages"] = new JsonArray(
+                new JsonObject { ["role"] = "system", ["content"] = system },
+                new JsonObject { ["role"] = "user", ["content"] = user }),
+            ["stream"] = false,
+            ["think"] = false,
+            ["keep_alive"] = "24h",
+            ["options"] = new JsonObject
+            {
+                ["temperature"] = 0,
+                ["num_predict"] = 256
+            }
+        };
+
+        req.Content = new StringContent(body.ToJsonString(CompactJson), Encoding.UTF8, "application/json");
+        return req;
     }
 
     private HttpRequestMessage BuildGeminiRequest(string system, string user)
@@ -346,6 +371,11 @@ public sealed partial class UniversalAiTranslator : ITextTranslator
             AiProviderKind.DeepL =>
                 root?["translations"]?.AsArray().FirstOrDefault()?["text"]?.GetValue<string>() ?? "",
 
+            AiProviderKind.Ollama =>
+                root?["message"]?["content"]?.GetValue<string>()
+                ?? root?["choices"]?.AsArray().FirstOrDefault()?["message"]?["content"]?.GetValue<string>()
+                ?? "",
+
             _ => root?["choices"]?.AsArray().FirstOrDefault()?["message"]?["content"]?.GetValue<string>() ?? ""
         };
     }
@@ -391,6 +421,11 @@ public sealed partial class UniversalAiTranslator : ITextTranslator
         {
             StatusWarning?.Invoke($"{_provider} API anahtarı geçersiz ({code}).");
             _pausedUntil = DateTimeOffset.UtcNow.AddMinutes(1);
+        }
+        else if (code == 404)
+        {
+            StatusWarning?.Invoke($"{_provider} modeli ({_model}) bulunamadı (HTTP 404); 'Modelleri Tara' ile yüklü bir model seçin.");
+            _pausedUntil = DateTimeOffset.UtcNow.AddSeconds(10);
         }
         else
         {

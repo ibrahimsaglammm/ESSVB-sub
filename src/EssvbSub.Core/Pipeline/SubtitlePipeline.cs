@@ -13,7 +13,7 @@ public sealed record PipelineMetrics(int OcrMs, int TranslationMs, int TotalLate
 /// </summary>
 public sealed class SubtitlePipeline : IDisposable
 {
-    public const int LateResultMs = 2500;
+    public const int LateResultMs = 4500;
     public const int MaxContextLines = 3;
     public const int MaxQueuedRequests = 2;
 
@@ -67,6 +67,7 @@ public sealed class SubtitlePipeline : IDisposable
     public bool ShowSpeakerNames { get; set; } = true;
     public string? MediaTitle { get; set; }
 
+    public event Action<string>? OcrTextObserved;
     public event Action<string, string>? SubtitleTranslated;
     public event Action<PipelineMetrics>? MetricsUpdated;
     public event Action<string>? DiagnosticLogged;
@@ -202,6 +203,8 @@ public sealed class SubtitlePipeline : IDisposable
 
     private void EnqueueTranslation(int session, string source, TextBox? box, bool replaces, long capturedAt, int ocrMs)
     {
+        OcrTextObserved?.Invoke(source);
+
         if (SpeakerPrefix.Parse(source) is { } split)
             _characterNames.Add(split.Name);
 

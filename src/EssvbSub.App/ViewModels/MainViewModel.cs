@@ -46,11 +46,17 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     private int _connectedTvCount;
     private WindowTarget? _selectedWindow;
     private (int X, int Y, int Width, int Height)? _customScreenRect;
+    private DiscoveredModel? _selectedModelItem;
+    private bool _useCustomModelEntry;
+    private string _modelDiscoveryStatus = "";
+    private bool _syncingModels;
 
     public MainViewModel()
     {
         _settings = SettingsStore.Load();
         _apiKeyInput = SettingsStore.GetApiKey(_settings.Provider);
+        if (_settings.UseScreenRegion && _settings.ScreenWidth >= 32 && _settings.ScreenHeight >= 20)
+            _customScreenRect = (_settings.ScreenX, _settings.ScreenY, _settings.ScreenWidth, _settings.ScreenHeight);
 
         string token = SettingsStore.GetOrCreateServerToken();
         string instanceId = SettingsStore.GetOrCreateInstanceId();
@@ -69,15 +75,18 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
 
         _ = StartServerSafeAsync();
         RefreshWindows();
+        _ = RefreshModelsAsync();
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
     public event Action<SubtitleEvent>? OverlayEventReceived;
+    public event Action<SubtitleStyle>? OverlayStyleChanged;
     public event Action<bool>? OverlayVisibilityChanged;
     public event Action<bool>? OverlayClickThroughChanged;
     public event Func<Task<(CropRegion Region, int X, int Y, int Width, int Height)?>>? SelectRegionRequested;
 
     public ObservableCollection<WindowTarget> AvailableWindows { get; } = [];
+    public ObservableCollection<DiscoveredModel> AvailableModels { get; } = [];
     public ObservableCollection<string> Logs { get; } = [];
     public IReadOnlyList<AiProviderDescriptor> Providers => AiProviderCatalog.All;
     public IReadOnlyList<ConsoleKind> ConsoleTypes { get; } = [ConsoleKind.PlayStation5, ConsoleKind.PlayStation4Pro];
@@ -102,9 +111,12 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             _settings.Mode = value;
             if (value == OperatingMode.PcGame)
                 _settings.Output = OutputTarget.PcOverlay;
+            else if (value == OperatingMode.MediaStream && ConnectedTvCount == 0 && _settings.Output == OutputTarget.SamsungTv)
+                _settings.Output = OutputTarget.PcOverlay;
             else if (value == OperatingMode.PlayStation && _settings.Output == OutputTarget.PcOverlay)
                 _settings.Output = OutputTarget.SamsungTv;
 
+            _server.SendsToTv = _settings.Output != OutputTarget.PcOverlay;
             SaveAndNotify(nameof(Mode), nameof(IsPlayStationMode), nameof(IsPcGameMode), nameof(IsMediaStreamMode), nameof(Output));
         }
     }
@@ -142,12 +154,38 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             _apiKeyInput = SettingsStore.GetApiKey(value.Kind);
             SaveAndNotify(nameof(SelectedProvider), nameof(ModelName), nameof(EndpointUrl), nameof(ApiKeyInput),
                 nameof(SuggestedModels), nameof(ShowEndpointBox), nameof(ShowApiKeyBox));
+            _ = RefreshModelsAsync();
         }
     }
 
     public IReadOnlyList<string> SuggestedModels => SelectedProvider.SuggestedModels;
     public bool ShowEndpointBox => SelectedProvider.Kind is AiProviderKind.Ollama or AiProviderKind.LmStudio or AiProviderKind.CustomOpenAi;
     public bool ShowApiKeyBox => SelectedProvider.RequiresApiKey || SelectedProvider.Kind == AiProviderKind.CustomOpenAi;
+
+    public DiscoveredModel? SelectedModelItem
+    {
+        get => _selectedModelItem;
+        set
+        {
+            if (_selectedModelItem == value) return;
+            _selectedModelItem = value;
+            OnPropertyChanged();
+            if (!_syncingModels && value is not null)
+                ModelName = value.Id;
+        }
+    }
+
+    public bool UseCustomModelEntry
+    {
+        get => _useCustomModelEntry;
+        set { if (_useCustomModelEntry != value) { _useCustomModelEntry = value; OnPropertyChanged(); } }
+    }
+
+    public string ModelDiscoveryStatus
+    {
+        get => _modelDiscoveryStatus;
+        private set { _modelDiscoveryStatus = value; OnPropertyChanged(); }
+    }
 
     public string ModelName
     {
@@ -263,10 +301,19 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         set
         {
             _selectedWindow = value;
-            if (value is not null) _customScreenRect = null;
+            if (value is not null && !_syncingModels)
+            {
+                _customScreenRect = null;
+                _settings.UseScreenRegion = false;
+                SettingsStore.Save(_settings);
+                OnPropertyChanged(nameof(RegionSummary));
+            }
             OnPropertyChanged();
+            OnPropertyChanged(nameof(CaptureSourceSummary));
         }
     }
+
+    public SubtitleStyle CurrentStyle => _settings.Style;
 
     public bool ClickThroughOverlay
     {
@@ -286,6 +333,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         {
             _settings.Style = _settings.Style with { FontSize = Math.Clamp(value, 24, 80) };
             _server.SendStyle(_settings.Style);
+            OverlayStyleChanged?.Invoke(_settings.Style);
             SaveAndNotify();
         }
     }
@@ -297,6 +345,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         {
             _settings.Style = _settings.Style with { TextColor = value };
             _server.SendStyle(_settings.Style);
+            OverlayStyleChanged?.Invoke(_settings.Style);
             SaveAndNotify();
         }
     }
@@ -308,6 +357,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         {
             _settings.Style = _settings.Style with { StackPrevious = value };
             _server.SendStyle(_settings.Style);
+            OverlayStyleChanged?.Invoke(_settings.Style);
             SaveAndNotify();
         }
     }
@@ -319,6 +369,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         {
             _settings.Style = _settings.Style with { SpeakerColors = value };
             _server.SendStyle(_settings.Style);
+            OverlayStyleChanged?.Invoke(_settings.Style);
             SaveAndNotify();
         }
     }
@@ -363,6 +414,11 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     public string TvConnectionSummary => ConnectedTvCount > 0 ? $"Samsung TV Bağlı ({ConnectedTvCount})" : $"TV Bekleniyor (Port {_server.ListeningPort})";
     public string ObsUrl => $"http://127.0.0.1:{_server.ListeningPort}/obs?k={_server.AccessToken}";
     public string RegionSummary => $"Alan: Sol {_settings.ScanRegion.Left:P0}–{_settings.ScanRegion.Right:P0}, Üst {_settings.ScanRegion.Top:P0}–{_settings.ScanRegion.Bottom:P0}";
+    public string CaptureSourceSummary => _customScreenRect is { } r
+        ? $"Aktif Kaynak: Özel Ekran Bölgesi ({r.Width}x{r.Height} @ {r.X},{r.Y})"
+        : SelectedWindow is { } w
+            ? $"Aktif Kaynak: Pencere — {w.Title} ({w.ProcessName})"
+            : "Aktif Kaynak: Seçilmedi (Pencere veya Ekran Bölgesi seçin)";
 
     private async Task StartServerSafeAsync()
     {
@@ -385,9 +441,65 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         foreach (var w in CrossPlatformWindowCapture.ListWindows())
             AvailableWindows.Add(w);
 
-        if (SelectedWindow is null && AvailableWindows.Count > 0)
-            SelectedWindow = AvailableWindows[0];
+        if (SelectedWindow is null && _customScreenRect is null && AvailableWindows.Count > 0)
+        {
+            _syncingModels = true;
+            try { SelectedWindow = AvailableWindows[0]; }
+            finally { _syncingModels = false; }
+        }
+        OnPropertyChanged(nameof(CaptureSourceSummary));
     }
+
+    public async Task RefreshModelsAsync()
+    {
+        var provider = _settings.Provider;
+        string endpoint = EndpointUrl;
+        string apiKey = SettingsStore.GetApiKey(provider);
+
+        ModelDiscoveryStatus = "Modeller taranıyor…";
+        var res = await ModelDiscoveryService.DiscoverModelsAsync(provider, endpoint, apiKey);
+
+        _syncingModels = true;
+        try
+        {
+            AvailableModels.Clear();
+            foreach (var m in res.Models)
+                AvailableModels.Add(m);
+
+            ModelDiscoveryStatus = res.StatusText;
+
+            if (AvailableModels.Count > 0)
+            {
+                DiscoveredModel? match =
+                    AvailableModels.FirstOrDefault(m => string.Equals(m.Id, ModelName, StringComparison.OrdinalIgnoreCase))
+                    ?? AvailableModels.FirstOrDefault(m => string.Equals(StripLatestTag(m.Id), StripLatestTag(ModelName), StringComparison.OrdinalIgnoreCase));
+
+                if (match is null && res.LiveQueried && AiProviderCatalog.Get(provider).IsLocal)
+                {
+                    match = AvailableModels[0];
+                    ModelName = match.Id;
+                    AppendLog($"Yerel model otomatik seçildi: {match.Id}");
+                }
+                else if (match is not null && !string.Equals(match.Id, ModelName, StringComparison.Ordinal))
+                {
+                    ModelName = match.Id;
+                }
+
+                SelectedModelItem = match;
+            }
+            else
+            {
+                SelectedModelItem = null;
+            }
+        }
+        finally
+        {
+            _syncingModels = false;
+        }
+    }
+
+    private static string StripLatestTag(string id) =>
+        id.EndsWith(":latest", StringComparison.OrdinalIgnoreCase) ? id[..^":latest".Length] : id;
 
     public async Task SelectScreenRegionAsync()
     {
@@ -396,9 +508,23 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         if (res is null) return;
 
         _settings.ScanRegion = res.Value.Region.Clamp();
+        _settings.UseScreenRegion = true;
+        _settings.ScreenX = res.Value.X;
+        _settings.ScreenY = res.Value.Y;
+        _settings.ScreenWidth = res.Value.Width;
+        _settings.ScreenHeight = res.Value.Height;
         _customScreenRect = (res.Value.X, res.Value.Y, res.Value.Width, res.Value.Height);
-        SaveAndNotify(nameof(RegionSummary));
+        SaveAndNotify(nameof(RegionSummary), nameof(CaptureSourceSummary));
         AppendLog($"Ekran bölgesi güncellendi: {res.Value.Width}x{res.Value.Height} @ ({res.Value.X},{res.Value.Y})");
+    }
+
+    public void ClearScreenRegion()
+    {
+        _customScreenRect = null;
+        _settings.UseScreenRegion = false;
+        _settings.ScanRegion = CropRegion.Default;
+        SaveAndNotify(nameof(RegionSummary), nameof(CaptureSourceSummary));
+        AppendLog("Özel ekran bölgesi temizlendi; pencere yakalama kullanılacak.");
     }
 
     public void OpenPsnLoginPage()
@@ -651,6 +777,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     private void StartPipeline()
     {
         StopPipeline();
+        LastSourceText = "";
+        LastTranslatedText = "";
         _server.SendsToTv = Output != OutputTarget.PcOverlay;
         _server.SendStyle(_settings.Style);
 
@@ -663,6 +791,11 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             MediaTitle = MediaTitle,
             ShowSpeakerNames = true
         };
+        _pipeline.OcrTextObserved += src => Dispatcher.UIThread.Post(() =>
+        {
+            LastSourceText = src;
+            LastTranslatedText = "Çevriliyor…";
+        });
         _pipeline.SubtitleTranslated += (src, tr) => Dispatcher.UIThread.Post(() =>
         {
             LastSourceText = src;
@@ -705,6 +838,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
 
             _windowCapture.FrameReceived += OnCapturedFrame;
             _windowCapture.StateChanged += st => Dispatcher.UIThread.Post(() => StatusMessage = st);
+            _windowCapture.DiagnosticLogged += msg => Dispatcher.UIThread.Post(() => AppendLog(msg));
             _windowCapture.Start();
         }
 

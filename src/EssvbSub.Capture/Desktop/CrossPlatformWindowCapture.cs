@@ -29,6 +29,8 @@ public sealed class CrossPlatformWindowCapture : IDisposable
     private int _busy;
     private bool _running;
     private bool _disposed;
+    private bool _loggedFirstFrame;
+    private int _blackFrameStreak;
 
     private WindowsDibGrabber? _winGrabber;
 
@@ -39,6 +41,7 @@ public sealed class CrossPlatformWindowCapture : IDisposable
 
     public event Action<Frame>? FrameReceived;
     public event Action<string>? StateChanged;
+    public event Action<string>? DiagnosticLogged;
 
     public void SetWindowTarget(WindowTarget target)
     {
@@ -46,6 +49,8 @@ public sealed class CrossPlatformWindowCapture : IDisposable
         {
             _targetWindow = target;
             _screenRegion = null;
+            _loggedFirstFrame = false;
+            _blackFrameStreak = 0;
         }
     }
 
@@ -55,6 +60,8 @@ public sealed class CrossPlatformWindowCapture : IDisposable
         {
             _screenRegion = (x, y, Math.Max(32, width), Math.Max(32, height));
             _targetWindow = null;
+            _loggedFirstFrame = false;
+            _blackFrameStreak = 0;
         }
     }
 
@@ -65,6 +72,8 @@ public sealed class CrossPlatformWindowCapture : IDisposable
             ObjectDisposedException.ThrowIf(_disposed, this);
             if (_running) return;
             _running = true;
+            _loggedFirstFrame = false;
+            _blackFrameStreak = 0;
             _winGrabber ??= OperatingSystem.IsWindows() ? new WindowsDibGrabber() : null;
             int periodMs = 1000 / _fps;
             _timer = new Timer(_ => Tick(), null, 0, periodMs);
@@ -101,23 +110,54 @@ public sealed class CrossPlatformWindowCapture : IDisposable
             }
 
             Frame? frame = null;
+            string captureMode = "Capture";
             if (OperatingSystem.IsWindows() && _winGrabber is not null)
             {
                 if (region is { } r)
+                {
                     frame = _winGrabber.CaptureScreenRect(r.X, r.Y, r.Width, r.Height);
+                    captureMode = "Ekran ROI (BitBlt)";
+                }
                 else if (win is not null)
-                    frame = _winGrabber.CaptureWindow(win.Handle);
+                {
+                    (frame, captureMode) = _winGrabber.CaptureWindow(win.Handle);
+                }
             }
             else if (OperatingSystem.IsLinux())
             {
                 if (region is { } r)
+                {
                     frame = LinuxCapture.CaptureScreenRect(r.X, r.Y, r.Width, r.Height);
+                    captureMode = "Linux ROI";
+                }
                 else if (win is not null)
+                {
                     frame = LinuxCapture.CaptureWindow(win.Handle);
+                    captureMode = "Linux Window";
+                }
             }
 
             if (frame is { IsConsistent: true, Width: > 1, Height: > 1 })
+            {
+                if (!_loggedFirstFrame)
+                {
+                    _loggedFirstFrame = true;
+                    DiagnosticLogged?.Invoke($"Görüntü akışı alındı: {frame.Width}x{frame.Height} ({captureMode})");
+                }
+
+                if (WindowsDibGrabber.IsMostlyBlack(frame))
+                {
+                    _blackFrameStreak++;
+                    if (_blackFrameStreak == 30)
+                        DiagnosticLogged?.Invoke("Uyarı: Yakalanan görüntü siyah geliyor (DRM veya donanım hızlandırma). Altyazı Alanını Seç (ROI) veya Sistem Sesini Dinle modunu deneyin.");
+                }
+                else
+                {
+                    _blackFrameStreak = 0;
+                }
+
                 FrameReceived?.Invoke(frame);
+            }
         }
         catch { }
         finally
@@ -203,30 +243,41 @@ public sealed class CrossPlatformWindowCapture : IDisposable
         private int _width;
         private int _height;
 
-        public Frame? CaptureWindow(nint hwnd)
+        public (Frame? Frame, string Mode) CaptureWindow(nint hwnd)
         {
             if (!Win32.IsWindow(hwnd) || Win32.IsIconic(hwnd))
-                return null;
-            if (!Win32.GetWindowRect(hwnd, out var rect))
-                return null;
+                return (null, "None");
+            if (!GetAccurateWindowRect(hwnd, out var rect))
+                return (null, "None");
 
             int w = rect.Right - rect.Left;
             int h = rect.Bottom - rect.Top;
             if (w < 4 || h < 4)
-                return null;
+                return (null, "None");
 
             EnsureBuffer(w, h);
             if (_memDc == 0 || _bits == 0)
-                return null;
+                return (null, "None");
 
-            if (!Win32.PrintWindow(hwnd, _memDc, PwRenderFullContent))
+            // Firefox / Chromium hardware-accelerated video layers render blank under PrintWindow,
+            // so prefer desktop BitBlt whenever the target window's subtitle band is visible on screen.
+            if (IsWindowVisibleAtPoint(hwnd, rect))
             {
-                nint screenDc = Win32.GetDC(0);
-                try { Win32.BitBlt(_memDc, 0, 0, w, h, screenDc, rect.Left, rect.Top, SrcCopy); }
-                finally { Win32.ReleaseDC(0, screenDc); }
+                CaptureScreenRegionInternal(rect.Left, rect.Top, w, h);
+                var screenFrame = CopyPixels(w, h);
+                if (!IsMostlyBlack(screenFrame))
+                    return (screenFrame, "BitBlt (Ekran)");
             }
 
-            return CopyPixels(w, h);
+            if (Win32.PrintWindow(hwnd, _memDc, PwRenderFullContent))
+            {
+                var printed = CopyPixels(w, h);
+                if (!IsMostlyBlack(printed))
+                    return (printed, "PrintWindow");
+            }
+
+            CaptureScreenRegionInternal(rect.Left, rect.Top, w, h);
+            return (CopyPixels(w, h), "BitBlt (Yedek)");
         }
 
         public Frame? CaptureScreenRect(int x, int y, int w, int h)
@@ -235,11 +286,69 @@ public sealed class CrossPlatformWindowCapture : IDisposable
             EnsureBuffer(w, h);
             if (_memDc == 0 || _bits == 0) return null;
 
+            CaptureScreenRegionInternal(x, y, w, h);
+            return CopyPixels(w, h);
+        }
+
+        private void CaptureScreenRegionInternal(int x, int y, int w, int h)
+        {
             nint screenDc = Win32.GetDC(0);
             try { Win32.BitBlt(_memDc, 0, 0, w, h, screenDc, x, y, SrcCopy); }
             finally { Win32.ReleaseDC(0, screenDc); }
+        }
 
-            return CopyPixels(w, h);
+        private static bool GetAccurateWindowRect(nint hwnd, out Win32.Rect rect)
+        {
+            const int DwmwaExtendedFrameBounds = 9;
+            if (Win32.DwmGetWindowAttribute(hwnd, DwmwaExtendedFrameBounds, out rect, Marshal.SizeOf<Win32.Rect>()) == 0 &&
+                rect.Right > rect.Left && rect.Bottom > rect.Top)
+            {
+                return true;
+            }
+            return Win32.GetWindowRect(hwnd, out rect);
+        }
+
+        private static bool IsWindowVisibleAtPoint(nint hwnd, in Win32.Rect rect)
+        {
+            if (Win32.GetForegroundWindow() == hwnd)
+                return true;
+
+            var pt = new Win32.Point
+            {
+                X = rect.Left + ((rect.Right - rect.Left) / 2),
+                Y = rect.Top + (((rect.Bottom - rect.Top) * 3) / 4)
+            };
+            nint topHwnd = Win32.WindowFromPoint(pt);
+            if (topHwnd == 0)
+                return false;
+
+            Win32.GetWindowThreadProcessId(hwnd, out uint targetPid);
+            Win32.GetWindowThreadProcessId(topHwnd, out uint topPid);
+            return topPid == targetPid || topPid == (uint)Environment.ProcessId;
+        }
+
+        public static bool IsMostlyBlack(Frame frame)
+        {
+            if (!frame.IsConsistent || frame.Width <= 0 || frame.Height <= 0)
+                return true;
+
+            int stepY = Math.Max(1, frame.Height / 16);
+            int stepX = Math.Max(1, frame.Width / 16);
+            int total = 0, nonBlack = 0;
+
+            for (int y = 0; y < frame.Height; y += stepY)
+            {
+                int row = y * frame.Stride;
+                for (int x = 0; x < frame.Width; x += stepX)
+                {
+                    int i = row + (x * 4);
+                    total++;
+                    if (frame.Pixels[i] > 8 || frame.Pixels[i + 1] > 8 || frame.Pixels[i + 2] > 8)
+                        nonBlack++;
+                }
+            }
+
+            return total > 0 && (nonBlack * 100) < total;
         }
 
         private Frame CopyPixels(int w, int h)
@@ -308,6 +417,9 @@ public sealed class CrossPlatformWindowCapture : IDisposable
         public struct Rect { public int Left, Top, Right, Bottom; }
 
         [StructLayout(LayoutKind.Sequential)]
+        public struct Point { public int X, Y; }
+
+        [StructLayout(LayoutKind.Sequential)]
         public struct BitmapInfoHeader
         {
             public uint Size;
@@ -323,6 +435,9 @@ public sealed class CrossPlatformWindowCapture : IDisposable
         [DllImport("user32.dll")] public static extern bool IsWindowVisible(nint hwnd);
         [DllImport("user32.dll")] public static extern bool IsIconic(nint hwnd);
         [DllImport("user32.dll")] public static extern bool GetWindowRect(nint hwnd, out Rect rect);
+        [DllImport("user32.dll")] public static extern nint GetForegroundWindow();
+        [DllImport("user32.dll")] public static extern nint WindowFromPoint(Point point);
+        [DllImport("dwmapi.dll")] public static extern int DwmGetWindowAttribute(nint hwnd, int dwAttribute, out Rect pvAttribute, int cbAttribute);
         [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(nint hwnd, out uint pid);
         [DllImport("user32.dll")] public static extern int GetWindowTextLengthW(nint hwnd);
         [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowTextW(nint hwnd, StringBuilder text, int maxCount);

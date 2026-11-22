@@ -53,9 +53,9 @@ chmod +x install-cachyos.sh
 ### 3. PC Oyun Modu & Film/Dizi Modu + Çeviri Modelleri
 - **PC Oyun Modu (Steam, Epic Games, GOG):** Tıklamaları oyuna geçiren (`WS_EX_NOACTIVATE` / `WS_EX_TRANSPARENT` & X11 `XShape`) şeffaf PC monitör overlay'i.
 - **Film & Dizi Modu (Netflix, Amazon Prime, Disney+):** Açık pencerede OCR; DRM korumalı siyah ekranda **WASAPI / PipeWire Loopback** sistem sesi dinleme (`whisper-cli` veya Gemini Multimodal Audio).
-- **Yerel & Yüksek AI Seçenekleri:**
-  - **Yerel:** **Ollama** (`qwen2.5:7b`, `gemma3:4b`), **LM Studio**, **CTranslate2 (`opus-mt-en-tr`)**
-  - **Bulut Yüksek AI:** **Google Gemini**, **xAI Grok**, **OpenAI ChatGPT**, **Anthropic Claude**, **DeepL**
+- **Yerel & Yüksek AI Seçenekleri (Otomatik Model Tarama & Seçici):**
+  - **Yerel:** **Ollama** (yerel `/api/chat` + `think: false` hızlandırmalı, yüklü tüm modelleri otomatik tarayıp listeden seçtiren destek), **LM Studio**, **CTranslate2 (`opus-mt-en-tr`)**
+  - **Bulut Yüksek AI:** **Google Gemini**, **xAI Grok**, **OpenAI ChatGPT**, **Anthropic Claude**, **DeepL** — güncel model listesi seçicisi ve API anahtarıyla canlı model tarama + isteğe bağlı elle model adı girme sekmesi.
 
 ![Model ve Mod Seçim Rehberi](docs/images/04-model-ve-mod-secimi.png)
 

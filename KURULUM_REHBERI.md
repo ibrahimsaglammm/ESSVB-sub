@@ -79,17 +79,19 @@ Konsola bilgisayar penceresi açmadan doğrudan arka plandan bağlanmak için (`
 
 ### Hangi Çeviri Motoru Bana Uygun?
 - **Hiç internet/ücret olmadan kendi PC'mde çalışsın diyorsanız:**
-  - **Ollama (Yerel AI):** `qwen2.5:7b` (oyun ve film Türkçesinde çok dengeli) veya `gemma3:4b` (hafif ekran kartları için hızlı).
-  - **LM Studio:** Grafik arayüzle kolayca model indirip çalıştırmak isteyenler için.
+  - **Ollama (Yerel AI):** Program açılışta bilgisayarınızdaki yüklü Ollama modellerini otomatik tarayıp açılır listeye doldurur (`Modelleri Tara` ile istediğiniz zaman yenileyebilirsiniz); isterseniz **`Özel model adını elle gir`** kutusunu açıp farklı ad da yazabilirsiniz.
+  - **LM Studio:** Grafik arayüzle indirdiğiniz GGUF modellerini de otomatik listeler.
   - **CTranslate2 (`opus-mt-en-tr`):** Ekran kartı belleği düşük sistemler için çok hızlı çevrimdışı çeviri.
 - **En doğal deyim, argo, küfür ve hikaye kalitesini istiyorsanız:**
-  - **Google Gemini (`gemini-2.5-flash`):** Çok hızlı, cömert ücretsiz kotaya sahip; ayrıca **Film & Dizi Modu**'nda DRM siyah ekranlarda doğrudan sistem sesini çözüp çevirebilir.
-  - **xAI Grok (`grok-3-mini` / `grok-3`):** Oyun içi argo, sokak dili ve sert replikleri yumuşatmadan doğal Türkçeye çevirir.
-  - **OpenAI ChatGPT (`gpt-4o-mini` / `gpt-4.1`) & Anthropic Claude:** Uzun RPG diyalogları ve diziler için yüksek edebi tutarlılık sunar.
+  - **Google Gemini, xAI Grok, OpenAI ChatGPT, Anthropic Claude, DeepL:** Her sağlayıcı için önerilen güncel modeller seçiciden tek tıkla seçilir; API anahtarınızı girdiğinizde hesabınıza açık canlı modelleri de tarayıp listeye ekler.
 
 ---
 
 ## Sık Sorulan Sorular (Hızlı Çözüm)
+
+- **Firefox / YouTube / Chrome üzerinde altyazı yakalanmıyor:**
+  - Videoda alt yazının göründüğü alanı **`Altyazı Alanını Seç (ROI)`** ile seçtiğinizde program seçili bölgeyi doğrudan tarar; pencere yakalamaya dönmek için **`Bölgeyi Sıfırla`** butonunu kullanın.
+  - **Film & Dizi** sekmesinde TV bağlı değilse çıkış hedefinin `PcOverlay` olduğundan emin olun.
 
 - **Samsung TV bulunamıyor / kurulum bağlanamıyor:**
   - TV ve PC aynı modem/Wi-Fi üzerinde mi?

@@ -258,6 +258,57 @@ public sealed class EssvbSubTests
     }
 
     [Fact]
+    public async Task Ollama_UsesNativeApiChatWithThinkDisabled_And_ParsesMessageContent()
+    {
+        var ollama = new UniversalAiTranslator(AiProviderKind.Ollama, endpoint: "http://127.0.0.1:11434/v1", model: "gemma4-12b-64k:latest");
+        using var req = ollama.BuildHttpRequest("Stay close.", [], null, null);
+        Assert.Equal("http://127.0.0.1:11434/api/chat", req.RequestUri!.AbsoluteUri);
+
+        string payload = await req.Content!.ReadAsStringAsync();
+        using var doc = JsonDocument.Parse(payload);
+        Assert.Equal("gemma4-12b-64k:latest", doc.RootElement.GetProperty("model").GetString());
+        Assert.False(doc.RootElement.GetProperty("think").GetBoolean());
+        Assert.False(doc.RootElement.GetProperty("stream").GetBoolean());
+
+        const string nativeResp = """{"model":"gemma4-12b-64k:latest","message":{"role":"assistant","content":"Yakın dur."},"done":true}""";
+        string extracted = UniversalAiTranslator.ExtractResponseText(AiProviderKind.Ollama, nativeResp);
+        Assert.Equal("Yakın dur.", UniversalAiTranslator.CleanModelOutput(extracted));
+    }
+
+    [Fact]
+    public void ModelDiscovery_FiltersEmbeddingModels_And_FormatsOllamaLabels()
+    {
+        const string tagsJson = """
+            {
+              "models": [
+                {
+                  "name": "gemma4-12b-64k:latest",
+                  "details": { "parameter_size": "11.9B", "quantization_level": "Q4_K_M" },
+                  "capabilities": ["completion", "vision", "thinking"]
+                },
+                {
+                  "name": "bge-m3:latest",
+                  "details": { "parameter_size": "566.70M", "quantization_level": "F16" },
+                  "capabilities": ["embedding"]
+                },
+                {
+                  "name": "qwen3:14b",
+                  "details": { "parameter_size": "14.8B", "quantization_level": "Q4_K_M" },
+                  "capabilities": ["completion", "thinking"]
+                }
+              ]
+            }
+            """;
+
+        var models = ModelDiscoveryService.ParseOllamaTagsJson(tagsJson);
+        Assert.Equal(2, models.Count);
+        Assert.Equal("gemma4-12b-64k:latest", models[0].Id);
+        Assert.Contains("11.9B", models[0].DisplayLabel);
+        Assert.Contains("Q4_K_M", models[0].DisplayLabel);
+        Assert.Equal("qwen3:14b", models[1].Id);
+    }
+
+    [Fact]
     public void WindowsOcr_CanInitializeWhenRunningOnWindows()
     {
         if (!OperatingSystem.IsWindows())
@@ -268,5 +319,73 @@ public sealed class EssvbSubTests
         var blank = Frame.Blank(100, 60);
         var reading = reader.ReadLines(blank, deep: false);
         Assert.Empty(reading.Lines);
+
+        // Render a crisp small-height white-on-black YouTube-style subtitle strip (height=34px)
+        var ytStrip = RenderBitmapTextFrame("HELLO TITLE", scale: 3, width: 340, height: 34);
+        var ytReading = reader.ReadLines(ytStrip, deep: false);
+        Assert.Contains("HELLO", ytReading.Text, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("TITLE", ytReading.Text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static Frame RenderBitmapTextFrame(string text, int scale, int width, int height)
+    {
+        var frame = Frame.Blank(width, height);
+        for (int y = 0; y < height; y++)
+        {
+            int row = y * frame.Stride;
+            for (int x = 0; x < width; x++)
+            {
+                int i = row + (x * 4);
+                frame.Pixels[i] = 16;
+                frame.Pixels[i + 1] = 16;
+                frame.Pixels[i + 2] = 16;
+                frame.Pixels[i + 3] = 255;
+            }
+        }
+
+        // Minimal 5x7 pixel font for H, E, L, O, T, I, space
+        static string[] Glyph(char ch) => ch switch
+        {
+            'H' => ["10001", "10001", "10001", "11111", "10001", "10001", "10001"],
+            'E' => ["11111", "10000", "10000", "11110", "10000", "10000", "11111"],
+            'L' => ["10000", "10000", "10000", "10000", "10000", "10000", "11111"],
+            'O' => ["01110", "10001", "10001", "10001", "10001", "10001", "01110"],
+            'T' => ["11111", "00100", "00100", "00100", "00100", "00100", "00100"],
+            'I' => ["01110", "00100", "00100", "00100", "00100", "00100", "01110"],
+            _   => ["00000", "00000", "00000", "00000", "00000", "00000", "00000"]
+        };
+
+        int cursorX = 16;
+        int startY = Math.Max(2, (height - (7 * scale)) / 2);
+        foreach (char ch in text)
+        {
+            var rows = Glyph(ch);
+            for (int r = 0; r < 7; r++)
+            {
+                for (int c = 0; c < 5; c++)
+                {
+                    if (rows[r][c] != '1') continue;
+                    for (int dy = 0; dy < scale; dy++)
+                    {
+                        for (int dx = 0; dx < scale; dx++)
+                        {
+                            int px = cursorX + (c * scale) + dx;
+                            int py = startY + (r * scale) + dy;
+                            if (px >= 0 && px < width && py >= 0 && py < height)
+                            {
+                                int idx = (py * frame.Stride) + (px * 4);
+                                frame.Pixels[idx] = 250;
+                                frame.Pixels[idx + 1] = 250;
+                                frame.Pixels[idx + 2] = 250;
+                                frame.Pixels[idx + 3] = 255;
+                            }
+                        }
+                    }
+                }
+            }
+            cursorX += 6 * scale;
+        }
+
+        return frame;
     }
 }

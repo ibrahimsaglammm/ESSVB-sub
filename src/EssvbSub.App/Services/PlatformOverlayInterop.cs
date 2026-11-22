@@ -34,11 +34,20 @@ public static class PlatformOverlayInterop
 
     private static void ApplyWindows(nint hwnd, bool clickThrough)
     {
+        const uint wdaExcludeFromCapture = 0x00000011;
+        const uint swpFlags = 0x0001 | 0x0002 | 0x0004 | 0x0010 | 0x0020; // NOSIZE | NOMOVE | NOZORDER | NOACTIVATE | FRAMECHANGED
+
+        // Prevent desktop BitBlt capture from seeing our own Turkish subtitles back into OCR
+        SetWindowDisplayAffinity(hwnd, wdaExcludeFromCapture);
+
         long style = (long)GetWindowLongPtrW(hwnd, GwlExStyle);
         long target = style | WsExToolWindow | WsExNoActivate;
         target = clickThrough ? (target | WsExTransparent) : (target & ~WsExTransparent);
         if (target != style)
+        {
             SetWindowLongPtrW(hwnd, GwlExStyle, (nint)target);
+            SetWindowPos(hwnd, 0, 0, 0, 0, 0, swpFlags);
+        }
     }
 
     private static void ApplyLinuxX11(nint windowId, bool clickThrough, int width, int height)
@@ -83,6 +92,8 @@ public static class PlatformOverlayInterop
 
     [DllImport("user32.dll")] private static extern nint GetWindowLongPtrW(nint hWnd, int nIndex);
     [DllImport("user32.dll")] private static extern nint SetWindowLongPtrW(nint hWnd, int nIndex, nint dwNewLong);
+    [DllImport("user32.dll")] private static extern bool SetWindowPos(nint hWnd, nint hWndInsertAfter, int x, int y, int cx, int cy, uint uFlags);
+    [DllImport("user32.dll")] private static extern bool SetWindowDisplayAffinity(nint hWnd, uint dwAffinity);
 
     [DllImport("libX11.so.6")] private static extern nint XOpenDisplay(nint display);
     [DllImport("libX11.so.6")] private static extern int XCloseDisplay(nint display);

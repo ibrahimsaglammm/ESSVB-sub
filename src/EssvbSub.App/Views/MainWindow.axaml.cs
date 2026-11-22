@@ -33,9 +33,10 @@ public partial class MainWindow : Window
             if (visible)
             {
                 _overlayWindow ??= new OverlayWindow();
-                _overlayWindow.SetClickThrough(vm.ClickThroughOverlay);
+                _overlayWindow.ApplyStyle(vm.CurrentStyle);
                 if (!_overlayWindow.IsVisible)
                     _overlayWindow.Show();
+                _overlayWindow.SetClickThrough(vm.ClickThroughOverlay);
             }
             else
             {
@@ -44,6 +45,7 @@ public partial class MainWindow : Window
         };
 
         vm.OverlayClickThroughChanged += clickThrough => _overlayWindow?.SetClickThrough(clickThrough);
+        vm.OverlayStyleChanged += style => _overlayWindow?.ApplyStyle(style);
         vm.OverlayEventReceived += ev => _overlayWindow?.HandleEvent(ev);
 
         vm.SelectRegionRequested += async () =>
@@ -60,6 +62,7 @@ public partial class MainWindow : Window
     private void OnToggleStartStop(object? sender, RoutedEventArgs e) => Vm?.ToggleStartStop();
     private void OnRefreshWindows(object? sender, RoutedEventArgs e) => Vm?.RefreshWindows();
     private async void OnSelectRegion(object? sender, RoutedEventArgs e) { if (Vm is not null) await Vm.SelectScreenRegionAsync(); }
+    private void OnClearRegion(object? sender, RoutedEventArgs e) => Vm?.ClearScreenRegion();
     private void OnOpenPsnLogin(object? sender, RoutedEventArgs e) => Vm?.OpenPsnLoginPage();
     private async void OnCompletePsnLogin(object? sender, RoutedEventArgs e) { if (Vm is not null) await Vm.CompletePsnLoginAsync(); }
     private async void OnDiscoverPlayStation(object? sender, RoutedEventArgs e) { if (Vm is not null) await Vm.DiscoverPlayStationAsync(); }
@@ -69,5 +72,6 @@ public partial class MainWindow : Window
     private async void OnLaunchSamsungTv(object? sender, RoutedEventArgs e) { if (Vm is not null) await Vm.LaunchSamsungTvAppAsync(); }
     private void OnApproveTvPairing(object? sender, RoutedEventArgs e) => Vm?.ApproveTvPairing(true);
     private void OnRejectTvPairing(object? sender, RoutedEventArgs e) => Vm?.ApproveTvPairing(false);
+    private async void OnRefreshModels(object? sender, RoutedEventArgs e) { if (Vm is not null) await Vm.RefreshModelsAsync(); }
     private async void OnTestTranslation(object? sender, RoutedEventArgs e) { if (Vm is not null) await Vm.TestTranslationConnectionAsync(); }
 }

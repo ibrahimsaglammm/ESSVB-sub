@@ -268,15 +268,17 @@ public sealed unsafe class WinRtOcrReader : ITextReader, IDisposable
 
     public Reading ReadLines(Frame image, bool deep)
     {
-        if (_disposed || !image.IsConsistent || image.Width < 40 || image.Height < 40 || image.Width > 4096 || image.Height > 4096)
+        if (_disposed || !image.IsConsistent || image.Width < 18 || image.Height < 18 || image.Width > 4096 || image.Height > 4096)
             return Reading.Empty;
 
-        Frame level = OcrPreprocessor.AutoLevel(image);
+        Frame work = (image.Height < 180 || image.Width < 900) ? OcrPreprocessor.Upscale2x(image) : image;
+        work = OcrPreprocessor.AddPadding(work, 16);
+        Frame level = OcrPreprocessor.AutoLevel(work);
         var candidates = new Frame[]
         {
+            level,
             OcrPreprocessor.ShadowText(level),
-            OcrPreprocessor.WhiteTextOnly(level),
-            level
+            OcrPreprocessor.WhiteTextOnly(level)
         };
 
         Reading best = Reading.Empty;
@@ -291,7 +293,7 @@ public sealed unsafe class WinRtOcrReader : ITextReader, IDisposable
                 best = reading;
                 bestScore = score;
             }
-            if (!deep && bestScore > 0)
+            if (!deep && bestScore >= 12)
                 break;
         }
 

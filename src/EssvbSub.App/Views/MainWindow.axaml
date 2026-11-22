@@ -138,10 +138,12 @@
                 <ComboBox ItemsSource="{Binding AvailableWindows}" SelectedItem="{Binding SelectedWindow}" HorizontalAlignment="Stretch" Margin="0,0,8,0" />
                 <Button Grid.Column="1" Classes="secondary" Content="Yenile" Click="OnRefreshWindows" />
               </Grid>
-              <Grid ColumnDefinitions="*,Auto">
+              <Grid ColumnDefinitions="*,Auto,Auto">
                 <TextBlock Text="{Binding RegionSummary}" VerticalAlignment="Center" FontSize="12" Foreground="#9CA3AF" Margin="0,0,8,0" />
-                <Button Grid.Column="1" Classes="secondary" Content="Altyazı Alanını Seç (ROI)" Click="OnSelectRegion" />
+                <Button Grid.Column="1" Classes="secondary" Content="Altyazı Alanını Seç (ROI)" Click="OnSelectRegion" Margin="0,0,6,0" />
+                <Button Grid.Column="2" Classes="secondary" Content="Bölgeyi Sıfırla" Click="OnClearRegion" />
               </Grid>
+              <TextBlock Text="{Binding CaptureSourceSummary}" FontSize="11.5" Foreground="#34D399" TextTrimming="CharacterEllipsis" />
             </StackPanel>
           </Border>
 
@@ -179,8 +181,17 @@
                   </ComboBox.ItemTemplate>
                 </ComboBox>
 
-                <TextBlock Grid.Row="1" Grid.Column="0" Text="Model Adı" VerticalAlignment="Center" Foreground="#9CA3AF" Margin="0,0,8,8" />
-                <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding ModelName}" Watermark="qwen2.5:7b / gemini-2.5-flash / grok-3-mini" Margin="0,0,0,8" />
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="Model Seçimi" VerticalAlignment="Center" Foreground="#9CA3AF" Margin="0,0,8,8" />
+                <StackPanel Grid.Row="1" Grid.Column="1" Spacing="6" Margin="0,0,0,8">
+                  <Grid ColumnDefinitions="*,Auto">
+                    <ComboBox ItemsSource="{Binding AvailableModels}" SelectedItem="{Binding SelectedModelItem}" HorizontalAlignment="Stretch" Margin="0,0,8,0" />
+                    <Button Grid.Column="1" Classes="secondary" Content="Modelleri Tara" Click="OnRefreshModels" IsEnabled="{Binding !IsBusy}" />
+                  </Grid>
+                  <TextBlock Text="{Binding ModelDiscoveryStatus}" FontSize="11" Foreground="#34D399" TextWrapping="Wrap" />
+                  <CheckBox IsChecked="{Binding UseCustomModelEntry}" Content="Özel model adını elle gir" FontSize="12" />
+                  <TextBox Text="{Binding ModelName}" IsVisible="{Binding UseCustomModelEntry}"
+                           Watermark="Örn: gemma4-12b-64k:latest / gemini-2.5-flash" />
+                </StackPanel>
 
                 <TextBlock Grid.Row="2" Grid.Column="0" Text="Sunucu Adresi" VerticalAlignment="Center" Foreground="#9CA3AF" IsVisible="{Binding ShowEndpointBox}" Margin="0,0,8,8" />
                 <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding EndpointUrl}" IsVisible="{Binding ShowEndpointBox}" Margin="0,0,0,8" />

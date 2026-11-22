@@ -153,6 +153,45 @@ public static class OcrPreprocessor
         return output;
     }
 
+    public static Frame Upscale2x(Frame image)
+    {
+        if (!image.IsConsistent || image.Width <= 0 || image.Height <= 0 ||
+            image.Width * 2 > 4096 || image.Height * 2 > 4096)
+        {
+            return image;
+        }
+        return image.Scaled(2);
+    }
+
+    public static Frame AddPadding(Frame image, int pad = 16)
+    {
+        if (pad <= 0 || !image.IsConsistent || image.Width <= 0 || image.Height <= 0 ||
+            image.Width + (pad * 2) > 4096 || image.Height + (pad * 2) > 4096)
+        {
+            return image;
+        }
+
+        int newW = image.Width + (pad * 2);
+        int newH = image.Height + (pad * 2);
+        var output = Frame.Blank(newW, newH);
+
+        for (int i = 3; i < output.Pixels.Length; i += 4)
+            output.Pixels[i] = 255;
+
+        int rowBytes = image.Width * 4;
+        for (int y = 0; y < image.Height; y++)
+        {
+            Buffer.BlockCopy(
+                image.Pixels,
+                y * image.Stride,
+                output.Pixels,
+                ((y + pad) * output.Stride) + (pad * 4),
+                rowBytes);
+        }
+
+        return output;
+    }
+
     public static byte[] ToGrayscale(Frame image, bool invert)
     {
         var gray = new byte[image.Width * image.Height];
