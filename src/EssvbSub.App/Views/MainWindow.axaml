@@ -382,15 +382,15 @@
 
           <Border Grid.Column="1" Classes="card" Margin="7,0,0,0">
             <StackPanel Spacing="6">
-              <TextBlock Text="v1.2.0 Yenilikleri &amp; Doğrulama" FontSize="15" FontWeight="Bold" Foreground="#F5B83D" />
+              <TextBlock Text="v1.3.0 Yenilikleri &amp; Doğrulama" FontSize="15" FontWeight="Bold" Foreground="#F5B83D" />
               <TextBlock FontSize="12.5" Foreground="#34D399" TextWrapping="Wrap"
-                         Text="• Yeni: Uygulama içi 'Yardım &amp; Hakkında' sekmesi — 5 adım resimli rehber + canlı sürüm/commit doğrulama." />
+                         Text="• Yeni: Windows 11 için kurulumsuz tek dosya .exe (.NET gerektirmez, gömülü ESSVB ikonu, Rust motoru ve 5 rehber tek pakette)." />
+              <TextBlock FontSize="12.5" Foreground="#F3EEE4" TextWrapping="Wrap"
+                         Text="• Uygulama içi 'Yardım &amp; Hakkında' sekmesi — 5 adım resimli rehber + canlı sürüm/commit doğrulama." />
               <TextBlock FontSize="12.5" Foreground="#F3EEE4" TextWrapping="Wrap"
                          Text="• Rust Hızlandırma (essvb_fast.dll): SIMD + LTO OCR ön-işleme ve değişim algılama (~4.5 ms/kare)." />
               <TextBlock FontSize="12.5" Foreground="#F3EEE4" TextWrapping="Wrap"
-                         Text="• Gemini 3.5 Flash Lite (F/P) kataloğu ve Ollama native /api/chat (think: false) 21x hızlandırma." />
-              <TextBlock FontSize="12.5" Foreground="#F3EEE4" TextWrapping="Wrap"
-                         Text="• Sürüklenip boyutlandırılabilen, %0–%100 karartı ayarlı ve konuşmacı renk şeritli yeni altyazı penceresi." />
+                         Text="• Gemini 3.5 Flash Lite (F/P), Ollama native /api/chat (think: false) ve sürüklenip %0–%100 karartılabilen overlay." />
             </StackPanel>
           </Border>
         </Grid>

@@ -38,9 +38,11 @@ public static unsafe class RustFastAccel
             ? "essvb_fast.dll"
             : OperatingSystem.IsMacOS() ? "libessvb_fast.dylib" : "libessvb_fast.so";
 
+        string procDir = Path.GetDirectoryName(Environment.ProcessPath) ?? string.Empty;
         string[] candidates =
         [
             Path.Combine(AppContext.BaseDirectory, file),
+            string.IsNullOrEmpty(procDir) ? file : Path.Combine(procDir, file),
             file,
             Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "native", "essvb_fast", "bin", file))
         ];

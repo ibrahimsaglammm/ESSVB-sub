@@ -955,6 +955,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         {
             string tvDir = Path.Combine(AppContext.BaseDirectory, "tv-tizen");
             if (!Directory.Exists(tvDir))
+                tvDir = Path.Combine(AppInfo.ExecutableDirectory, "tv-tizen");
+            if (!Directory.Exists(tvDir))
                 tvDir = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "tv-tizen"));
 
             string host = SamsungTvIp.Trim();

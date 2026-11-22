@@ -7,7 +7,7 @@
 </p>
 
 - **Marka & Lisans:** ESSVB Özel Mülkiyet Lisansı ([LICENSE](LICENSE))
-- **Güncel Sürüm:** `v1.2.0` (Uygulama içi **`Yardım & Hakkında`** sekmesi + 5 adımlı görsel rehber)
+- **Güncel Sürüm:** `v1.3.0` (Windows 11 kurulumsuz tek dosya `.exe` + uygulama içi **`Yardım & Hakkında`** sekmesi + 5 adımlı görsel rehber)
 - **Sıfır Telemetri:** Hiçbir dış analiz, izleme, reklam veya ortak veri havuzuna görüntü/metin gönderilmez.
 - **Güvenli Yerel TV Yayını:** Yalnızca 6 haneli tek kullanımlık PIN eşleştirmesiyle üretilen şifreli token ile bağlanılır; CGNAT alt ağları engellenir.
 - **Ayrıntılı Resimli Anlatım:** Yeni başlayanlar için adım adım rehber ➔ **[KURULUM_REHBERI.md](KURULUM_REHBERI.md)**
@@ -16,13 +16,21 @@
 
 ## GitHub'dan Tek Tıkla Kurulum
 
-### Windows 11
+### Windows 11 İçin Hazır Tek Dosya `.exe` (En Kolay — `.NET` Kurulumu Gerekmez!)
+1. [GitHub Releases](https://github.com/ibrahimsaglammm/ESSVB-sub/releases/latest) sayfasından **`ESSVB-sub-v1.3.0-win11-x64.exe`** dosyasını indirin.
+2. Çift tıklayıp doğrudan çalıştırın — `.NET 10`, Rust `essvb_fast.dll`, 5 adımlı rehber ve `tv-tizen/` modülleri tek `.exe` içindedir!
+   - İsteğe bağlı SHA-256 doğrulama: aynı sayfadaki `.exe.sha256` dosyası veya `Get-FileHash ESSVB-sub-v1.3.0-win11-x64.exe` ile doğrulayabilirsiniz.
+
+### Kaynak Koddan Kurulum & Tek Dosya `.exe` Derleme (Windows 11)
 1. **`Code -> Download ZIP`** ile indirin veya klonlayın:
    ```powershell
    git clone https://github.com/ibrahimsaglammm/ESSVB-sub.git
    ```
-2. Klasör içindeki **`Start-ESSVB-sub.bat`** dosyasına çift tıklayın (veya `powershell -ExecutionPolicy Bypass -File .\install-windows.ps1`).
-   - `.NET 10 SDK` eksikse otomatik yükler, projeyi Release modunda derler, Masaüstünüze **`ESSVB-sub`** kısayolu oluşturur ve programı açar.
+2. Hemen açmak için **`Start-ESSVB-sub.bat`** dosyasına çift tıklayın (veya kendi tek dosya `.exe` paketinizi derlemek için):
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\build-windows-exe.ps1
+   ```
+   - `build-windows-exe.ps1` yerel Rust + .NET Self-Contained `.exe` çıktısını `dist\ESSVB-sub-v1.3.0-win11-x64.exe` yoluna üretir ve `--self-check` ile doğrular.
 
 ### CachyOS (Arch Linux)
 ```bash
@@ -65,7 +73,7 @@ chmod +x install-cachyos.sh
 - **Sürükle & Boyutlandır Overlay:** **`Altyazı Penceresini Taşı / Boyutlandır`** butonuyla kutuyu istediğiniz yere sürükleyip 8 kenar/köşeden yeniden boyutlandırabilirsiniz.
 - **%0 Tam Şeffaf – %100 Karartı:** Arka plan karartısı `%0` iken karanlık kutu tamamen kalkar; okunaklı dış konturlu metin görünür.
 - **Konuşmacı Renk Ayrımı:** Farklı konuşmacılar ve `- Satır 1 / - Satır 2` diyalogları otomatik renk ve sol vurgu şeridiyle ayrılır.
-- **Uygulama İçi `Yardım & Hakkında` Sekmesi:** Program sürümünü (`v1.2.0` + commit doğrulama), Rust hızlandırma durumunu ve bu 5 resimli rehberi doğrudan uygulamanın içinden görüntüleyebilirsiniz.
+- **Uygulama İçi `Yardım & Hakkında` Sekmesi:** Program sürümünü (`v1.3.0` + commit doğrulama), Rust hızlandırma durumunu ve bu 5 resimli rehberi doğrudan uygulamanın içinden görüntüleyebilirsiniz.
 
 ![Altyazı Penceresi ve Kullanım Rehberi](docs/images/05-altyazi-penceresi-ve-kullanim.png)
 

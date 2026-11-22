@@ -391,19 +391,19 @@ public sealed class EssvbSubTests
     [Fact]
     public void AppInfo_ParsesSemanticVersionAndShortCommitCorrectly()
     {
-        Assert.Equal("1.2.0", AppInfo.ParseSemanticVersion("1.2.0+8b56851f2938178939"));
-        Assert.Equal("8b56851", AppInfo.ParseShortCommit("1.2.0+8b56851f2938178939"));
-        Assert.Equal("v1.2.0 (8b56851)", AppInfo.FormatVersionLabel("1.2.0+8b56851f2938178939"));
+        Assert.Equal("1.3.0", AppInfo.ParseSemanticVersion("1.3.0+8b56851f2938178939"));
+        Assert.Equal("8b56851", AppInfo.ParseShortCommit("1.3.0+8b56851f2938178939"));
+        Assert.Equal("v1.3.0 (8b56851)", AppInfo.FormatVersionLabel("1.3.0+8b56851f2938178939"));
 
-        Assert.Equal("1.2.0", AppInfo.ParseSemanticVersion("1.2.0"));
-        Assert.Equal(string.Empty, AppInfo.ParseShortCommit("1.2.0"));
-        Assert.Equal("v1.2.0", AppInfo.FormatVersionLabel("1.2.0"));
+        Assert.Equal("1.3.0", AppInfo.ParseSemanticVersion("1.3.0"));
+        Assert.Equal(string.Empty, AppInfo.ParseShortCommit("1.3.0"));
+        Assert.Equal("v1.3.0", AppInfo.FormatVersionLabel("1.3.0"));
 
-        Assert.Equal("1.2.0", AppInfo.ParseSemanticVersion(null));
-        Assert.Equal("v1.2.0", AppInfo.FormatVersionLabel(null));
+        Assert.Equal("1.3.0", AppInfo.ParseSemanticVersion(null));
+        Assert.Equal("v1.3.0", AppInfo.FormatVersionLabel(null));
 
-        Assert.Equal("1.2.0", AppInfo.Version);
-        Assert.Equal("v1.2.0", AppInfo.VersionBadge);
+        Assert.Equal("1.3.0", AppInfo.Version);
+        Assert.Equal("v1.3.0", AppInfo.VersionBadge);
     }
 
     private static Frame RenderBitmapTextFrame(string text, int scale, int width, int height)
