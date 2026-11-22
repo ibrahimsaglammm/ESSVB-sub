@@ -1,0 +1,56 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="EssvbSub.App.App"
+             RequestedThemeVariant="Dark">
+  <Application.Styles>
+    <FluentTheme />
+    <Style Selector="Window">
+      <Setter Property="Background" Value="#0A0D12" />
+      <Setter Property="Foreground" Value="#F3EEE4" />
+      <Setter Property="FontFamily" Value="Segoe UI, Inter, Noto Sans, sans-serif" />
+    </Style>
+    <Style Selector="Border.card">
+      <Setter Property="Background" Value="#131722" />
+      <Setter Property="BorderBrush" Value="#252C3B" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="12" />
+      <Setter Property="Padding" Value="16" />
+    </Style>
+    <Style Selector="Button.primary">
+      <Setter Property="Background" Value="#F5B83D" />
+      <Setter Property="Foreground" Value="#0A0D12" />
+      <Setter Property="FontWeight" Value="Bold" />
+      <Setter Property="Padding" Value="14,8" />
+      <Setter Property="CornerRadius" Value="8" />
+    </Style>
+    <Style Selector="Button.primary:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="#FFD166" />
+    </Style>
+    <Style Selector="Button.secondary">
+      <Setter Property="Background" Value="#1D2434" />
+      <Setter Property="Foreground" Value="#F3EEE4" />
+      <Setter Property="BorderBrush" Value="#303A52" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Padding" Value="12,8" />
+      <Setter Property="CornerRadius" Value="8" />
+    </Style>
+    <Style Selector="Button.tab">
+      <Setter Property="Background" Value="#131722" />
+      <Setter Property="Foreground" Value="#9CA3AF" />
+      <Setter Property="BorderBrush" Value="#252C3B" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Padding" Value="16,10" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="Button.tabActive">
+      <Setter Property="Background" Value="#1D2536" />
+      <Setter Property="Foreground" Value="#F5B83D" />
+      <Setter Property="BorderBrush" Value="#F5B83D" />
+      <Setter Property="BorderThickness" Value="1.5" />
+      <Setter Property="Padding" Value="16,10" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="FontWeight" Value="Bold" />
+    </Style>
+  </Application.Styles>
+</Application>

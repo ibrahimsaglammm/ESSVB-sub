@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/EssvbSub.Core/EssvbSub.Core.csproj" />
+    <Project Path="src/EssvbSub.Translation/EssvbSub.Translation.csproj" />
+    <Project Path="src/EssvbSub.Capture/EssvbSub.Capture.csproj" />
+    <Project Path="src/EssvbSub.App/EssvbSub.App.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/EssvbSub.Tests/EssvbSub.Tests.csproj" />
+  </Folder>
+</Solution>

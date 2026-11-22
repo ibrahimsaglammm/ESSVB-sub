@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="essvb-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#141821" />
+      <stop offset="100%" stop-color="#0A0D12" />
+    </linearGradient>
+    <linearGradient id="essvb-gold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFD466" />
+      <stop offset="50%" stop-color="#F5B83D" />
+      <stop offset="100%" stop-color="#D98A1C" />
+    </linearGradient>
+    <linearGradient id="essvb-cyan" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#38BDF8" />
+      <stop offset="100%" stop-color="#818CF8" />
+    </linearGradient>
+  </defs>
+
+  <!-- Outer Shield Crest -->
+  <path d="M256 24 L448 92 V244 C448 362 362 452 256 488 C150 452 64 362 64 244 V92 Z"
+        fill="url(#essvb-bg)" stroke="url(#essvb-gold)" stroke-width="14" stroke-linejoin="round" />
+
+  <!-- Inner Accent Frame -->
+  <path d="M256 50 L422 109 V242 C422 344 348 422 256 456 C164 422 90 344 90 242 V109 Z"
+        fill="none" stroke="#283040" stroke-width="4" />
+
+  <!-- Top Cinema/Console Light Bar -->
+  <rect x="166" y="122" width="180" height="10" rx="5" fill="url(#essvb-cyan)" />
+
+  <!-- Bold ESSVB Monogram -->
+  <text x="256" y="246"
+        text-anchor="middle"
+        font-family="Segoe UI, Inter, Arial Black, sans-serif"
+        font-weight="900"
+        font-size="94"
+        letter-spacing="4"
+        fill="url(#essvb-gold)">ESSVB</text>
+
+  <!-- Live Subtitle Waveform Bars -->
+  <rect x="128" y="294" width="256" height="24" rx="12" fill="#F3EEE4" opacity="0.95" />
+  <rect x="166" y="334" width="180" height="18" rx="9" fill="url(#essvb-cyan)" opacity="0.9" />
+
+  <!-- SUB Badge -->
+  <rect x="196" y="376" width="120" height="36" rx="18" fill="#1E2430" stroke="url(#essvb-gold)" stroke-width="3" />
+  <text x="256" y="401"
+        text-anchor="middle"
+        font-family="Segoe UI, Inter, Arial, sans-serif"
+        font-weight="800"
+        font-size="20"
+        letter-spacing="5"
+        fill="#F3EEE4">SUB</text>
+</svg>

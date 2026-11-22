@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Copyright (c) 2026 ESSVB. All Rights Reserved. -->
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>ESSVB-sub</AssemblyName>
+    <RootNamespace>EssvbSub.App</RootNamespace>
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.2.5" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.2.5" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.2.5" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AvaloniaResource Include="Assets\essvb-logo.png" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="..\..\tv-tizen\**\*">
+      <Link>tv-tizen\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\EssvbSub.Core\EssvbSub.Core.csproj" />
+    <ProjectReference Include="..\EssvbSub.Translation\EssvbSub.Translation.csproj" />
+    <ProjectReference Include="..\EssvbSub.Capture\EssvbSub.Capture.csproj" />
+  </ItemGroup>
+
+</Project>

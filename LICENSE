@@ -1,0 +1,32 @@
+ESSVB-sub Proprietary Software License
+
+Copyright (c) 2026 ESSVB. All Rights Reserved.
+
+This software and its associated documentation, source code, branding, logos,
+visual assets, and binaries ("ESSVB-sub") are the proprietary property of ESSVB.
+
+1. Ownership:
+   All right, title, and interest in and to ESSVB-sub, including all intellectual
+   property rights, trademarks ("ESSVB", "ESSVB-sub"), and emblems, belong
+   exclusively to ESSVB.
+
+2. Permitted Use:
+   Permission is granted to the owner/authorized licensee to build, run, modify,
+   and deploy ESSVB-sub for personal or authorized internal use across Windows 11,
+   CachyOS (Linux), PlayStation 4 Pro / PlayStation 5, and Samsung Tizen TVs.
+
+3. Restrictions:
+   Unauthorized commercial redistribution, rebranding, or removal of ESSVB
+   copyright and trademark notices is prohibited without prior written consent
+   from ESSVB.
+
+4. Third-Party Components:
+   Optional runtime integrations and dynamically linked libraries (such as
+   Avalonia UI [MIT], TizenSdb.Core [MIT], libchiaki [LGPL-2.1/AGPL-compatible
+   native bridge], FFmpeg [LGPL], and Tesseract [Apache-2.0]) remain governed by
+   their respective third-party licenses.
+
+5. Disclaimer:
+   THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT.

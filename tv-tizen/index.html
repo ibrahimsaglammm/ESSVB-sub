@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=1920">
+  <title>ESSVB-sub</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="subtitle-cover" class="hidden"></div>
+  <div id="subtitle" class="hidden">
+    <div id="subtitle-prev2" class="hidden"><span id="subtitle-prev2-text"></span></div>
+    <div id="subtitle-prev" class="hidden"><span id="subtitle-prev-text"></span></div>
+    <span id="subtitle-text"></span>
+  </div>
+
+  <div id="waiting" class="hidden">
+    <div class="card">
+      <div class="brand-row">
+        <img class="logo" src="icon.png" alt="ESSVB">
+        <span class="brand-name">ESSVB<span>-sub</span></span>
+      </div>
+      <div class="waiting-title">Bilgisayar bekleniyor…</div>
+      <div class="waiting-hint">Aynı ev ağındaki Windows 11 veya CachyOS bilgisayarınızda ESSVB-sub uygulamasını başlatın.</div>
+      <div id="waiting-status" class="waiting-status">Yerel ağ taranıyor…</div>
+    </div>
+  </div>
+
+  <div id="pairing" class="hidden" role="status"></div>
+
+  <div id="panel">
+    <div class="title">
+      <img class="logo" src="icon.png" alt="ESSVB">
+      <span>ESSVB-sub</span>
+      <span id="app-version" class="muted">v1.0.0</span>
+    </div>
+    <div class="row"><span class="label">HDMI Girişi</span><span id="st-hdmi">-</span></div>
+    <div class="row"><span class="label">Görüntü</span><span id="st-video" class="muted">Hazırlanıyor…</span></div>
+    <div class="row"><span class="label">Sunucu</span><span id="st-server" class="muted">Aranıyor…</span></div>
+    <div class="row"><span class="label">Bağlantı</span><span id="st-conn" class="muted">Bekleniyor</span></div>
+    <div class="row"><span class="label">Son Altyazı</span><span id="st-last" class="muted">-</span></div>
+    <div class="keys">
+      <div class="key"><b>1 - 4</b> HDMI Girişi Seç (PS5 / PS4 Pro)</div>
+      <div class="key"><b>Kırmızı / 0</b> Paneli Göster / Gizle</div>
+      <div class="key"><b>Geri</b> Uygulamadan Çık</div>
+    </div>
+  </div>
+
+  <script src="platform.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

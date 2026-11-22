@@ -1,0 +1,250 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:EssvbSub.App.ViewModels"
+        x:Class="EssvbSub.App.Views.MainWindow"
+        x:DataType="vm:MainViewModel"
+        Title="ESSVB-sub — Canlı Altyazı Stüdyosu"
+        Icon="/Assets/essvb-logo.png"
+        Width="1080"
+        Height="780"
+        MinWidth="920"
+        MinHeight="660">
+  <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="20">
+
+    <!-- Header: ESSVB Brand Emblem + Mode Tabs + Start/Stop -->
+    <Border Grid.Row="0" Classes="card" Padding="14,12" Margin="0,0,0,12">
+      <Grid ColumnDefinitions="Auto,*,Auto">
+        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+          <Image Source="/Assets/essvb-logo.png" Width="42" Height="42" />
+          <StackPanel VerticalAlignment="Center">
+            <StackPanel Orientation="Horizontal" Spacing="2">
+              <TextBlock Text="ESSVB" FontSize="20" FontWeight="Black" Foreground="#F5B83D" />
+              <TextBlock Text="-sub" FontSize="20" FontWeight="SemiBold" Foreground="#38BDF8" />
+            </StackPanel>
+            <TextBlock Text="{Binding StatusMessage}" FontSize="12" Foreground="#9CA3AF" />
+          </StackPanel>
+        </StackPanel>
+
+        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="12,0">
+          <Button Content="PlayStation (PS5 / PS4 Pro)" Click="OnSelectPlayStation"
+                  Classes.tabActive="{Binding IsPlayStationMode}"
+                  Classes.tab="{Binding !IsPlayStationMode}" />
+          <Button Content="PC Oyun (Steam / Epic)" Click="OnSelectPcGame"
+                  Classes.tabActive="{Binding IsPcGameMode}"
+                  Classes.tab="{Binding !IsPcGameMode}" />
+          <Button Content="Film &amp; Dizi (Netflix / Prime / Disney+)" Click="OnSelectMediaStream"
+                  Classes.tabActive="{Binding IsMediaStreamMode}"
+                  Classes.tab="{Binding !IsMediaStreamMode}" />
+        </StackPanel>
+
+        <Button Grid.Column="2" Classes="primary" Content="{Binding StartStopLabel}"
+                Click="OnToggleStartStop" VerticalAlignment="Center" MinWidth="150" HorizontalContentAlignment="Center" />
+      </Grid>
+    </Border>
+
+    <!-- TV Pairing Approval Banner -->
+    <Border Grid.Row="1" Classes="card" BorderBrush="#F5B83D" BorderThickness="1.5" Margin="0,0,0,12"
+            IsVisible="{Binding HasPendingTvTicket}">
+      <Grid ColumnDefinitions="*,Auto,Auto">
+        <StackPanel VerticalAlignment="Center">
+          <TextBlock Text="Samsung TV Eşleştirme İsteği" FontWeight="Bold" Foreground="#F5B83D" />
+          <TextBlock FontSize="13" Foreground="#F3EEE4"
+                     Text="{Binding PendingTvTicket.PinCode, StringFormat='TV ekranındaki kod: {0} — Onaylıyor musunuz?'}" />
+        </StackPanel>
+        <Button Grid.Column="1" Classes="primary" Content="Onayla" Click="OnApproveTvPairing" Margin="10,0,8,0" />
+        <Button Grid.Column="2" Classes="secondary" Content="Reddet" Click="OnRejectTvPairing" />
+      </Grid>
+    </Border>
+
+    <!-- Main Two-Column Content -->
+    <ScrollViewer Grid.Row="2">
+      <Grid ColumnDefinitions="*,*">
+
+        <!-- Left Column: Source & TV Configuration -->
+        <StackPanel Grid.Column="0" Spacing="14" Margin="0,0,7,0">
+
+          <!-- PlayStation Mode Card -->
+          <Border Classes="card" IsVisible="{Binding IsPlayStationMode}">
+            <StackPanel Spacing="10">
+              <TextBlock Text="PlayStation 5 &amp; PS4 Pro Bağlantısı" FontSize="16" FontWeight="Bold" Foreground="#F5B83D" />
+              <Grid ColumnDefinitions="130,*" RowDefinitions="Auto,Auto,Auto">
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Konsol Modeli" VerticalAlignment="Center" Foreground="#9CA3AF" Margin="0,0,8,8" />
+                <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding ConsoleTypes}"
+                          SelectedItem="{Binding SelectedConsoleType}" HorizontalAlignment="Stretch" Margin="0,0,0,8" />
+
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="Konsol IP" VerticalAlignment="Center" Foreground="#9CA3AF" Margin="0,0,8,8" />
+                <Grid Grid.Row="1" Grid.Column="1" ColumnDefinitions="*,Auto" Margin="0,0,0,8">
+                  <TextBox Text="{Binding PlayStationIp}" Watermark="192.168.1.x" Margin="0,0,8,0" />
+                  <Button Grid.Column="1" Classes="secondary" Content="Konsol Ara" Click="OnDiscoverPlayStation" IsEnabled="{Binding !IsBusy}" />
+                </Grid>
+
+                <TextBlock Grid.Row="2" Grid.Column="0" Text="Durum" VerticalAlignment="Center" Foreground="#9CA3AF" Margin="0,0,8,0" />
+                <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding ConsoleRegistrationStatus}" Foreground="#38BDF8" VerticalAlignment="Center" TextWrapping="Wrap" />
+              </Grid>
+
+              <Separator Background="#252C3B" Height="1" Margin="0,4" />
+              <TextBlock Text="İkinci PSN Hesabı &amp; Eşleştirme (TV'de HDMI için)" FontWeight="SemiBold" FontSize="13" />
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Text="{Binding PsnAccountStatus}" VerticalAlignment="Center" Foreground="#9CA3AF" Margin="0,0,8,0" />
+                <Button Grid.Column="1" Classes="secondary" Content="Sony PSN Girişi Aç" Click="OnOpenPsnLogin" />
+              </Grid>
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBox Text="{Binding PsnRedirectInput}" Watermark="Sony yönlendirme linkini (redirect) buraya yapıştırın" Margin="0,0,8,0" />
+                <Button Grid.Column="1" Classes="secondary" Content="Hesabı Bağla" Click="OnCompletePsnLogin" IsEnabled="{Binding !IsBusy}" />
+              </Grid>
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBox Text="{Binding PsPinInput}" Watermark="PS5 / PS4 Pro 8 haneli Remote Play kodu" Margin="0,0,8,0" />
+                <Button Grid.Column="1" Classes="secondary" Content="Konsolu Eşle" Click="OnRegisterPlayStation" IsEnabled="{Binding !IsBusy}" />
+              </Grid>
+            </StackPanel>
+          </Border>
+
+          <!-- Samsung Tizen TV Card (Visible in PlayStation or MediaStream) -->
+          <Border Classes="card" IsVisible="{Binding !IsPcGameMode}">
+            <StackPanel Spacing="10">
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Text="Samsung Tizen TV (65&quot; CU8500 / MU9000 / Tizen 2.4+)" FontSize="15" FontWeight="Bold" Foreground="#38BDF8" />
+                <TextBlock Grid.Column="1" Text="{Binding TvConnectionSummary}" FontSize="12" Foreground="#34D399" VerticalAlignment="Center" />
+              </Grid>
+              <Grid ColumnDefinitions="130,*" RowDefinitions="Auto,Auto,Auto,Auto">
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Altyazı Hedefi" VerticalAlignment="Center" Foreground="#9CA3AF" Margin="0,0,8,8" />
+                <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding OutputTargets}" SelectedItem="{Binding Output}" HorizontalAlignment="Stretch" Margin="0,0,0,8" />
+
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="TV Modeli" VerticalAlignment="Center" Foreground="#9CA3AF" Margin="0,0,8,8" />
+                <ComboBox Grid.Row="1" Grid.Column="1" ItemsSource="{Binding TvModels}" SelectedItem="{Binding SelectedTvModel}" HorizontalAlignment="Stretch" Margin="0,0,0,8" />
+
+                <TextBlock Grid.Row="2" Grid.Column="0" Text="Samsung TV IP" VerticalAlignment="Center" Foreground="#9CA3AF" Margin="0,0,8,8" />
+                <Grid Grid.Row="2" Grid.Column="1" ColumnDefinitions="*,Auto" Margin="0,0,0,8">
+                  <TextBox Text="{Binding SamsungTvIp}" Watermark="192.168.1.y (TV Ara veya IP girin)" Margin="0,0,8,0" />
+                  <Button Grid.Column="1" Classes="secondary" Content="TV Ara" Click="OnDiscoverSamsungTv" IsEnabled="{Binding !IsBusy}" />
+                </Grid>
+
+                <TextBlock Grid.Row="3" Grid.Column="0" Text="HDMI Portu" VerticalAlignment="Center" Foreground="#9CA3AF" Margin="0,0,8,0" />
+                <ComboBox Grid.Row="3" Grid.Column="1" ItemsSource="{Binding HdmiPorts}" SelectedItem="{Binding HdmiPort}" HorizontalAlignment="Stretch" />
+              </Grid>
+              <WrapPanel Orientation="Horizontal">
+                <Button Classes="secondary" Content="TV'ye Otomatik Kur &amp; Aç" Click="OnInstallSamsungTv" IsEnabled="{Binding !IsBusy}" Margin="0,0,8,4" />
+                <Button Classes="secondary" Content="TV'de Başlat" Click="OnLaunchSamsungTv" IsEnabled="{Binding !IsBusy}" Margin="0,0,8,4" />
+              </WrapPanel>
+              <CheckBox IsChecked="{Binding AutoLaunchTvApp}" Content="Çeviri Başlarken TV Uygulamasını Otomatik Aç" />
+            </StackPanel>
+          </Border>
+
+          <!-- PC Window / Region Capture Card -->
+          <Border Classes="card">
+            <StackPanel Spacing="10">
+              <TextBlock Text="Pencere &amp; Ekran Yakalama (Steam, Epic, Remote Play, Tarayıcı)" FontSize="15" FontWeight="Bold" Foreground="#F5B83D" />
+              <Grid ColumnDefinitions="*,Auto">
+                <ComboBox ItemsSource="{Binding AvailableWindows}" SelectedItem="{Binding SelectedWindow}" HorizontalAlignment="Stretch" Margin="0,0,8,0" />
+                <Button Grid.Column="1" Classes="secondary" Content="Yenile" Click="OnRefreshWindows" />
+              </Grid>
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Text="{Binding RegionSummary}" VerticalAlignment="Center" FontSize="12" Foreground="#9CA3AF" Margin="0,0,8,0" />
+                <Button Grid.Column="1" Classes="secondary" Content="Altyazı Alanını Seç (ROI)" Click="OnSelectRegion" />
+              </Grid>
+            </StackPanel>
+          </Border>
+
+          <!-- Film & Series DRM-Safe Audio Loopback Card -->
+          <Border Classes="card" IsVisible="{Binding IsMediaStreamMode}">
+            <StackPanel Spacing="10">
+              <TextBlock Text="Film &amp; Dizi Modu (Netflix, Amazon Prime, Disney+)" FontSize="15" FontWeight="Bold" Foreground="#38BDF8" />
+              <CheckBox IsChecked="{Binding MediaUseAudioLoopback}"
+                        Content="DRM Korumalı Video İçin Sistem Sesini Dinle (WASAPI / PipeWire Loopback)" />
+              <TextBlock FontSize="12" Foreground="#9CA3AF" TextWrapping="Wrap"
+                         Text="Tarayıcı veya uygulama siyah ekran veriyorsa sistem sesinden canlı İngilizce diyalog çözülüp Türkçeye çevrilir." />
+              <StackPanel Spacing="8" IsVisible="{Binding MediaUseAudioLoopback}">
+                <CheckBox IsChecked="{Binding AudioUseGemini}" Content="Ses Çözümlemede Gemini Multimodal Kullan (Kapalıysa Whisper)" />
+                <TextBox Text="{Binding WhisperCliPath}" Watermark="Yerel whisper-cli yolu (isteğe bağlı, çevrimdışı için)" />
+                <TextBox Text="{Binding WhisperModelPath}" Watermark="Yerel ggml-base.en.bin model yolu (isteğe bağlı)" />
+              </StackPanel>
+            </StackPanel>
+          </Border>
+
+        </StackPanel>
+
+        <!-- Right Column: Translation AI & Overlay Settings -->
+        <StackPanel Grid.Column="1" Spacing="14" Margin="7,0,0,0">
+
+          <Border Classes="card">
+            <StackPanel Spacing="10">
+              <TextBlock Text="Çeviri Motoru (Yerel &amp; Yüksek AI)" FontSize="16" FontWeight="Bold" Foreground="#F5B83D" />
+              <Grid ColumnDefinitions="130,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto">
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Sağlayıcı" VerticalAlignment="Center" Foreground="#9CA3AF" Margin="0,0,8,8" />
+                <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Providers}" SelectedItem="{Binding SelectedProvider}" HorizontalAlignment="Stretch" Margin="0,0,0,8">
+                  <ComboBox.ItemTemplate>
+                    <DataTemplate>
+                      <TextBlock Text="{Binding DisplayName}" />
+                    </DataTemplate>
+                  </ComboBox.ItemTemplate>
+                </ComboBox>
+
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="Model Adı" VerticalAlignment="Center" Foreground="#9CA3AF" Margin="0,0,8,8" />
+                <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding ModelName}" Watermark="qwen2.5:7b / gemini-2.5-flash / grok-3-mini" Margin="0,0,0,8" />
+
+                <TextBlock Grid.Row="2" Grid.Column="0" Text="Sunucu Adresi" VerticalAlignment="Center" Foreground="#9CA3AF" IsVisible="{Binding ShowEndpointBox}" Margin="0,0,8,8" />
+                <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding EndpointUrl}" IsVisible="{Binding ShowEndpointBox}" Margin="0,0,0,8" />
+
+                <TextBlock Grid.Row="3" Grid.Column="0" Text="API Anahtarı" VerticalAlignment="Center" Foreground="#9CA3AF" IsVisible="{Binding ShowApiKeyBox}" Margin="0,0,8,8" />
+                <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding ApiKeyInput}" PasswordChar="•" IsVisible="{Binding ShowApiKeyBox}" Watermark="Yerel şifreli kasada saklanır" Margin="0,0,0,8" />
+
+                <TextBlock Grid.Row="4" Grid.Column="0" Text="Oyun / Film Adı" VerticalAlignment="Center" Foreground="#9CA3AF" Margin="0,0,8,8" />
+                <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding MediaTitle}" Watermark="Bağlam için (ör. God of War, Severance)" Margin="0,0,0,8" />
+
+                <TextBlock Grid.Row="5" Grid.Column="0" Text="Ek Talimat" VerticalAlignment="Center" Foreground="#9CA3AF" Margin="0,0,8,0" />
+                <TextBox Grid.Row="5" Grid.Column="1" Text="{Binding CustomInstruction}" Watermark="Örn: Argo ve küfürleri yumuşatmadan çevir." />
+              </Grid>
+
+              <Grid ColumnDefinitions="Auto,*" Margin="0,4,0,0">
+                <Button Classes="secondary" Content="Bağlantıyı Test Et" Click="OnTestTranslation" IsEnabled="{Binding !IsBusy}" Margin="0,0,10,0" />
+                <TextBlock Grid.Column="1" Text="{Binding AiTestResult}" VerticalAlignment="Center" FontSize="12" Foreground="#34D399" TextWrapping="Wrap" />
+              </Grid>
+            </StackPanel>
+          </Border>
+
+          <Border Classes="card">
+            <StackPanel Spacing="10">
+              <TextBlock Text="PC Monitör Overlay &amp; Altyazı Görünümü" FontSize="15" FontWeight="Bold" Foreground="#38BDF8" />
+              <Grid ColumnDefinitions="130,*" RowDefinitions="Auto,Auto">
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Yazı Boyutu" VerticalAlignment="Center" Foreground="#9CA3AF" Margin="0,0,8,8" />
+                <Slider Grid.Row="0" Grid.Column="1" Minimum="28" Maximum="72" Value="{Binding FontSize}" Margin="0,0,0,8" />
+
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="Yazı Rengi" VerticalAlignment="Center" Foreground="#9CA3AF" Margin="0,0,8,0" />
+                <ComboBox Grid.Row="1" Grid.Column="1" ItemsSource="{Binding TextColors}" SelectedItem="{Binding TextColor}" HorizontalAlignment="Stretch" />
+              </Grid>
+
+              <WrapPanel Orientation="Horizontal">
+                <CheckBox IsChecked="{Binding ClickThroughOverlay}" Content="Tıklamaları Oyuna Geçir (Kilitli)" Margin="0,0,16,4" />
+                <CheckBox IsChecked="{Binding StackPrevious}" Content="Önceki Satırları Üstte Tut" Margin="0,0,16,4" />
+                <CheckBox IsChecked="{Binding SpeakerColors}" Content="Konuşana Göre Renklendir" />
+              </WrapPanel>
+
+              <TextBlock FontSize="11" Foreground="#9CA3AF" Text="{Binding ObsUrl, StringFormat='OBS Tarayıcı Kaynağı: {0}'}" TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+
+          <!-- Live Diagnostics Log -->
+          <Border Classes="card">
+            <StackPanel Spacing="6">
+              <TextBlock Text="Sistem Günlüğü (%100 Yerel — Dış Veri Çıkışı Yok)" FontSize="13" FontWeight="Bold" Foreground="#9CA3AF" />
+              <ListBox ItemsSource="{Binding Logs}" Height="130" Background="#0A0D12" FontSize="11" />
+            </StackPanel>
+          </Border>
+
+        </StackPanel>
+      </Grid>
+    </ScrollViewer>
+
+    <!-- Bottom Live Subtitle & Latency Bar -->
+    <Border Grid.Row="3" Classes="card" Padding="14,10" Margin="0,12,0,0">
+      <Grid ColumnDefinitions="*,Auto">
+        <StackPanel Spacing="2" Margin="0,0,12,0">
+          <TextBlock Text="{Binding LastSourceText, StringFormat='EN: {0}'}" FontSize="12" Foreground="#9CA3AF" TextTrimming="CharacterEllipsis" />
+          <TextBlock Text="{Binding LastTranslatedText, StringFormat='TR: {0}'}" FontSize="15" FontWeight="Bold" Foreground="#F5B83D" TextTrimming="CharacterEllipsis" />
+        </StackPanel>
+        <TextBlock Grid.Column="1" Text="{Binding MetricsMessage}" VerticalAlignment="Center" FontSize="12" Foreground="#38BDF8" />
+      </Grid>
+    </Border>
+
+  </Grid>
+</Window>

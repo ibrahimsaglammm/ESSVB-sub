@@ -1,0 +1,29 @@
+# Build artifacts
+bin/
+obj/
+.vs/
+.vscode/
+*.user
+*.suo
+*.log
+
+# Native & CMake outputs
+build/
+native/bin/
+native/build/
+
+# Sensitive runtime secrets, pairing certificates & local configs
+*.p12
+*.pfx
+*.key
+vault.dat
+vault.dat.*
+settings.json
+password.txt
+device-profile.xml
+*.wgt
+
+# OS noise
+.DS_Store
+Thumbs.db
+desktop.ini

@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Copyright (c) 2026 ESSVB. All Rights Reserved. -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>EssvbSub.Translation</AssemblyName>
+    <RootNamespace>EssvbSub.Translation</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\EssvbSub.Core\EssvbSub.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="EssvbSub.Tests" />
+  </ItemGroup>
+
+</Project>

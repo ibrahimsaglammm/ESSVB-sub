@@ -1,0 +1,23 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="EssvbSub.App.Views.RegionSelectorWindow"
+        Title="Altyazı Alanını Seç"
+        SystemDecorations="None"
+        WindowState="FullScreen"
+        TransparencyLevelHint="Transparent"
+        Background="#550A0D12"
+        Topmost="True"
+        ShowInTaskbar="False">
+  <Canvas x:Name="RootCanvas" Cursor="Cross">
+    <Border Background="#CC131722" BorderBrush="#F5B83D" BorderThickness="1.5" CornerRadius="10"
+            Padding="18,10" Canvas.Left="24" Canvas.Top="24">
+      <TextBlock Text="Altyazıların göründüğü alanı fare ile sürükleyip seçin • İptal için ESC"
+                 Foreground="#F3EEE4" FontSize="15" FontWeight="SemiBold" />
+    </Border>
+    <Rectangle x:Name="SelectionBox"
+               IsVisible="False"
+               Fill="#22F5B83D"
+               Stroke="#F5B83D"
+               StrokeThickness="2.5" />
+  </Canvas>
+</Window>
