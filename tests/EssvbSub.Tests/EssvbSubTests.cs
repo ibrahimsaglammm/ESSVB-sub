@@ -3,6 +3,7 @@
 using System.IO.Compression;
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
@@ -406,11 +407,11 @@ public sealed class EssvbSubTests
         Assert.Equal(string.Empty, AppInfo.ParseShortCommit("1.4.0"));
         Assert.Equal("v1.4.0", AppInfo.FormatVersionLabel("1.4.0"));
 
-        Assert.Equal("1.6.0", AppInfo.ParseSemanticVersion(null));
-        Assert.Equal("v1.6.0", AppInfo.FormatVersionLabel(null));
+        Assert.Equal("1.6.1", AppInfo.ParseSemanticVersion(null));
+        Assert.Equal("v1.6.1", AppInfo.FormatVersionLabel(null));
 
-        Assert.Equal("1.6.0", AppInfo.Version);
-        Assert.Equal("v1.6.0", AppInfo.VersionBadge);
+        Assert.Equal("1.6.1", AppInfo.Version);
+        Assert.Equal("v1.6.1", AppInfo.VersionBadge);
     }
 
     [Fact]
@@ -893,6 +894,147 @@ public sealed class EssvbSubTests
         {
             try { if (Directory.Exists(p12Dir)) Directory.Delete(p12Dir, recursive: true); } catch { }
         }
+    }
+
+    [Fact]
+    public async Task OllamaProcessManager_ShutdownCore_UnloadsLoadedModelsAndStopsLocalProcesses()
+    {
+        var unloaded = new List<string>();
+        bool processesStoppedCalled = false;
+
+        var res = await OllamaProcessManager.ShutdownLocalOllamaCoreAsync(
+            endpoint: "http://127.0.0.1:11434/v1",
+            listRunningModelsAsync: (_, _) => Task.FromResult<IReadOnlyList<string>>(["gemma3:4b-it-q8_0", "qwen3:14b"]),
+            unloadModelAsync: (_, model, _) =>
+            {
+                unloaded.Add(model);
+                return Task.FromResult(true);
+            },
+            stopLocalProcesses: () =>
+            {
+                processesStoppedCalled = true;
+                return 2;
+            },
+            timeout: TimeSpan.FromSeconds(3));
+
+        Assert.Equal(OllamaShutdownStatus.Stopped, res.Status);
+        Assert.Equal(2, res.ModelsUnloaded);
+        Assert.Equal(2, res.ProcessesStopped);
+        Assert.True(processesStoppedCalled);
+        Assert.Equal(["gemma3:4b-it-q8_0", "qwen3:14b"], unloaded);
+    }
+
+    [Fact]
+    public async Task OllamaProcessManager_ShutdownCore_SkipsNonLoopbackEndpoint()
+    {
+        bool probed = false;
+        bool killed = false;
+
+        var res = await OllamaProcessManager.ShutdownLocalOllamaCoreAsync(
+            endpoint: "https://remote-gpu.example.com/v1",
+            listRunningModelsAsync: (_, _) => { probed = true; return Task.FromResult<IReadOnlyList<string>>([]); },
+            unloadModelAsync: (_, _, _) => Task.FromResult(true),
+            stopLocalProcesses: () => { killed = true; return 1; },
+            timeout: TimeSpan.FromSeconds(2));
+
+        Assert.Equal(OllamaShutdownStatus.NotLocalEndpoint, res.Status);
+        Assert.Equal(0, res.ModelsUnloaded);
+        Assert.Equal(0, res.ProcessesStopped);
+        Assert.False(probed);
+        Assert.False(killed);
+    }
+
+    [Fact]
+    public async Task OllamaProcessManager_ShutdownCore_ReturnsNotRunningWhenIdle()
+    {
+        var res = await OllamaProcessManager.ShutdownLocalOllamaCoreAsync(
+            endpoint: "http://localhost:11434/v1",
+            listRunningModelsAsync: (_, _) => Task.FromResult<IReadOnlyList<string>>([]),
+            unloadModelAsync: (_, _, _) => Task.FromResult(false),
+            stopLocalProcesses: () => 0,
+            timeout: TimeSpan.FromSeconds(2));
+
+        Assert.Equal(OllamaShutdownStatus.NotRunning, res.Status);
+        Assert.Equal(0, res.ModelsUnloaded);
+        Assert.Equal(0, res.ProcessesStopped);
+    }
+
+    [Fact]
+    public void RustFastAccel_V3_CopyOpaqueResizeAndWordOverlapMatchReference()
+    {
+        Assert.True(RustFastAccel.IsAvailable);
+        Assert.True(RustFastAccel.EngineVersion >= 3);
+
+        // 1. Verify TryCopyOpaqueBgra copies BGR channels verbatim and forces alpha = 255
+        byte[] raw = [12, 34, 56, 0, 210, 180, 90, 44, 0, 255, 128, 77];
+        byte[] dst = new byte[raw.Length];
+        nint ptr = Marshal.AllocHGlobal(raw.Length);
+        try
+        {
+            Marshal.Copy(raw, 0, ptr, raw.Length);
+            Assert.True(RustFastAccel.TryCopyOpaqueBgra(ptr, dst, 3));
+            Assert.Equal(new byte[] { 12, 34, 56, 255, 210, 180, 90, 255, 0, 255, 128, 255 }, dst);
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(ptr);
+        }
+
+        // 2. Verify TryResizeBgra bit-exact parity against pure C# bilinear reference
+        var src = Frame.Blank(17, 9);
+        for (int y = 0; y < src.Height; y++)
+        {
+            for (int x = 0; x < src.Width; x++)
+            {
+                int i = (y * src.Stride) + (x * 4);
+                src.Pixels[i] = (byte)((x * 15 + y * 19) & 255);
+                src.Pixels[i + 1] = (byte)((x * 23 + y * 7) & 255);
+                src.Pixels[i + 2] = (byte)((x * 5 + y * 29) & 255);
+                src.Pixels[i + 3] = (byte)((x + y) % 2 == 0 ? 127 : 255);
+            }
+        }
+
+        const int targetW = 31;
+        const int targetH = 14;
+        Assert.True(RustFastAccel.TryResizeBgra(src, targetW, targetH, out var rustResized));
+
+        var expected = Frame.Blank(targetW, targetH);
+        double scaleX = (double)src.Width / targetW;
+        double scaleY = (double)src.Height / targetH;
+        for (int ty = 0; ty < targetH; ty++)
+        {
+            double sy = Math.Clamp(((ty + 0.5) * scaleY) - 0.5, 0, src.Height - 1.0);
+            int y0 = (int)sy;
+            int y1 = Math.Min(y0 + 1, src.Height - 1);
+            double fy = sy - y0;
+            for (int tx = 0; tx < targetW; tx++)
+            {
+                double sx = Math.Clamp(((tx + 0.5) * scaleX) - 0.5, 0, src.Width - 1.0);
+                int x0 = (int)sx;
+                int x1 = Math.Min(x0 + 1, src.Width - 1);
+                double fx = sx - x0;
+                int i00 = (y0 * src.Stride) + (x0 * 4);
+                int i10 = (y0 * src.Stride) + (x1 * 4);
+                int i01 = (y1 * src.Stride) + (x0 * 4);
+                int i11 = (y1 * src.Stride) + (x1 * 4);
+                int o = (ty * expected.Stride) + (tx * 4);
+                for (int c = 0; c < 4; c++)
+                {
+                    double top = src.Pixels[i00 + c] + ((src.Pixels[i10 + c] - src.Pixels[i00 + c]) * fx);
+                    double bot = src.Pixels[i01 + c] + ((src.Pixels[i11 + c] - src.Pixels[i01 + c]) * fx);
+                    expected.Pixels[o + c] = (byte)Math.Clamp(Math.Round(top + ((bot - top) * fy)), 0, 255);
+                }
+            }
+        }
+        Assert.Equal(expected.Pixels, rustResized.Pixels);
+
+        // 3. Verify TryWordOverlap exact multiset equality including duplicate words and Turkish characters
+        Assert.True(RustFastAccel.TryWordOverlap("çok güzel bir oyun bugün çok".AsSpan(), "çok güzel bir bugün çok".AsSpan(), out double ov1));
+        Assert.Equal(5.0 / 6.0, ov1, precision: 9);
+
+        Assert.True(RustFastAccel.TryWordOverlap("go north now".AsSpan(), "go south later".AsSpan(), out double ov2));
+        Assert.Equal(1.0 / 3.0, ov2, precision: 9);
+        Assert.Equal(1.0 / 3.0, TextMatch.WordOverlap("go north now", "go south later"), precision: 9);
     }
 
     private sealed class StubHttpMessageHandler(Func<HttpRequestMessage, HttpResponseMessage> responder) : HttpMessageHandler

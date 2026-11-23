@@ -1,6 +1,9 @@
 // Copyright (c) 2026 ESSVB. All Rights Reserved.
 
+using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Text;
+using System.Text.Json;
 using EssvbSub.Translation.Providers;
 
 namespace EssvbSub.Translation;
@@ -24,6 +27,20 @@ public sealed record OllamaEnsureResult(
     public bool IsReady => Status is OllamaEnsureStatus.AlreadyRunning or OllamaEnsureStatus.StartedSuccessfully;
 }
 
+public enum OllamaShutdownStatus
+{
+    Stopped,
+    NotRunning,
+    NotLocalEndpoint,
+    Failed
+}
+
+public sealed record OllamaShutdownResult(
+    OllamaShutdownStatus Status,
+    int ModelsUnloaded,
+    int ProcessesStopped,
+    string Message);
+
 internal sealed record SpawnedOllamaProcess(
     int? ProcessId,
     Func<bool> HasExited,
@@ -31,11 +48,13 @@ internal sealed record SpawnedOllamaProcess(
 
 /// <summary>
 /// Probes local Ollama availability and automatically launches <c>ollama serve</c>
-/// hidden in the background when the user triggers translation, test connection, or model scan.
+/// hidden in the background when the user triggers translation, test connection, or model scan,
+/// and unloads VRAM / stops local Ollama cleanly on exit.
 /// </summary>
 public static class OllamaProcessManager
 {
     private static readonly SemaphoreSlim StartGate = new(1, 1);
+    private static readonly ConcurrentDictionary<int, byte> SpawnedPids = new();
 
     private static readonly HttpClient ProbeHttp = new(new SocketsHttpHandler
     {
@@ -304,7 +323,12 @@ public static class OllamaProcessManager
             ?? throw new InvalidOperationException("Process.Start null döndürdü.");
 
         int? pid = null;
-        try { pid = proc.Id; } catch { }
+        try
+        {
+            pid = proc.Id;
+            SpawnedPids[pid.Value] = 0;
+        }
+        catch { }
 
         return new SpawnedOllamaProcess(
             pid,
@@ -318,5 +342,264 @@ public static class OllamaProcessManager
                 try { return proc.HasExited ? proc.ExitCode : null; }
                 catch { return null; }
             });
+    }
+
+    public static Task<OllamaShutdownResult> ShutdownLocalOllamaAsync(
+        string? endpoint = null,
+        HttpClient? httpClient = null,
+        TimeSpan? timeout = null,
+        CancellationToken ct = default)
+    {
+        HttpClient client = httpClient ?? ProbeHttp;
+        return ShutdownLocalOllamaCoreAsync(
+            endpoint,
+            listRunningModelsAsync: (root, token) => ListRunningModelsHttpAsync(root, client, token),
+            unloadModelAsync: (root, model, token) => UnloadModelHttpAsync(root, model, client, token),
+            stopLocalProcesses: StopLocalOllamaProcesses,
+            timeout: timeout ?? TimeSpan.FromSeconds(3),
+            ct: ct);
+    }
+
+    public static OllamaShutdownResult ShutdownLocalOllamaSync(
+        string? endpoint = null,
+        TimeSpan? timeout = null)
+    {
+        TimeSpan effectiveTimeout = timeout ?? TimeSpan.FromSeconds(3);
+        try
+        {
+            // Run off UI SynchronizationContext to prevent deadlocks during window/app teardown.
+            return Task.Run(() => ShutdownLocalOllamaAsync(endpoint, timeout: effectiveTimeout))
+                .GetAwaiter()
+                .GetResult();
+        }
+        catch (Exception ex)
+        {
+            return new OllamaShutdownResult(
+                OllamaShutdownStatus.Failed,
+                0,
+                0,
+                $"Ollama kapatma hatası: {ex.Message}");
+        }
+    }
+
+    internal static async Task<OllamaShutdownResult> ShutdownLocalOllamaCoreAsync(
+        string? endpoint,
+        Func<Uri, CancellationToken, Task<IReadOnlyList<string>>> listRunningModelsAsync,
+        Func<Uri, string, CancellationToken, Task<bool>> unloadModelAsync,
+        Func<int> stopLocalProcesses,
+        TimeSpan timeout,
+        CancellationToken ct = default)
+    {
+        if (!IsLoopbackOllamaEndpoint(endpoint))
+        {
+            return new OllamaShutdownResult(
+                OllamaShutdownStatus.NotLocalEndpoint,
+                0,
+                0,
+                "Uzak Ollama adresi kullanılıyor; yalnızca yerel Ollama durdurulur.");
+        }
+
+        Uri root = AiProviderCatalog.ResolveOllamaRootUri(endpoint ?? "");
+        TimeSpan effectiveTimeout = timeout > TimeSpan.Zero ? timeout : TimeSpan.FromSeconds(3);
+        using var budgetCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        budgetCts.CancelAfter(effectiveTimeout);
+
+        int modelsUnloaded = 0;
+        try
+        {
+            using var psCts = CancellationTokenSource.CreateLinkedTokenSource(budgetCts.Token);
+            psCts.CancelAfter(TimeSpan.FromMilliseconds(1200));
+            IReadOnlyList<string> loadedModels = await listRunningModelsAsync(root, psCts.Token).ConfigureAwait(false);
+
+            foreach (string rawName in loadedModels)
+            {
+                if (budgetCts.IsCancellationRequested)
+                    break;
+
+                string modelName = rawName.Trim();
+                if (modelName.Length == 0)
+                    continue;
+
+                using var unloadCts = CancellationTokenSource.CreateLinkedTokenSource(budgetCts.Token);
+                unloadCts.CancelAfter(TimeSpan.FromMilliseconds(1500));
+                try
+                {
+                    if (await unloadModelAsync(root, modelName, unloadCts.Token).ConfigureAwait(false))
+                        modelsUnloaded++;
+                }
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                {
+                    // Time budget exhausted; continue straight to process termination so VRAM is still freed.
+                }
+            }
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            // Ollama /api/ps unavailable or timed out; still clean up any local Ollama processes.
+        }
+        catch
+        {
+            // Swallow HTTP errors when Ollama is already down before proceeding to process cleanup.
+        }
+
+        int processesStopped = 0;
+        try
+        {
+            processesStopped = stopLocalProcesses();
+        }
+        catch (Exception ex)
+        {
+            return new OllamaShutdownResult(
+                OllamaShutdownStatus.Failed,
+                modelsUnloaded,
+                0,
+                $"Yerel Ollama süreçleri durdurulamadı: {ex.Message}");
+        }
+
+        if (modelsUnloaded == 0 && processesStopped == 0)
+        {
+            return new OllamaShutdownResult(
+                OllamaShutdownStatus.NotRunning,
+                0,
+                0,
+                "Çalışan yerel Ollama süreci veya VRAM modeli bulunamadı.");
+        }
+
+        return new OllamaShutdownResult(
+            OllamaShutdownStatus.Stopped,
+            modelsUnloaded,
+            processesStopped,
+            $"Yerel Ollama durduruldu ({modelsUnloaded} model VRAM'den boşaltıldı, {processesStopped} süreç kapatıldı).");
+    }
+
+    private static async Task<IReadOnlyList<string>> ListRunningModelsHttpAsync(
+        Uri root,
+        HttpClient client,
+        CancellationToken ct)
+    {
+        string url = root.AbsoluteUri.TrimEnd('/') + "/api/ps";
+        using var resp = await client.GetAsync(url, ct).ConfigureAwait(false);
+        if (!resp.IsSuccessStatusCode)
+            return Array.Empty<string>();
+
+        string json = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(json))
+            return Array.Empty<string>();
+
+        using var doc = JsonDocument.Parse(json);
+        if (!doc.RootElement.TryGetProperty("models", out var modelsElem) ||
+            modelsElem.ValueKind != JsonValueKind.Array)
+        {
+            return Array.Empty<string>();
+        }
+
+        var result = new List<string>();
+        foreach (var item in modelsElem.EnumerateArray())
+        {
+            string? name = null;
+            if (item.TryGetProperty("name", out var nProp) && nProp.ValueKind == JsonValueKind.String)
+                name = nProp.GetString();
+            else if (item.TryGetProperty("model", out var mProp) && mProp.ValueKind == JsonValueKind.String)
+                name = mProp.GetString();
+
+            if (!string.IsNullOrWhiteSpace(name))
+                result.Add(name.Trim());
+        }
+
+        return result;
+    }
+
+    private static async Task<bool> UnloadModelHttpAsync(
+        Uri root,
+        string modelName,
+        HttpClient client,
+        CancellationToken ct)
+    {
+        string url = root.AbsoluteUri.TrimEnd('/') + "/api/generate";
+        string payload = JsonSerializer.Serialize(new { model = modelName, keep_alive = 0 });
+        using var content = new StringContent(payload, Encoding.UTF8, "application/json");
+        using var resp = await client.PostAsync(url, content, ct).ConfigureAwait(false);
+        return resp.IsSuccessStatusCode;
+    }
+
+    private static int StopLocalOllamaProcesses()
+    {
+        var stoppedIds = new HashSet<int>();
+        int selfPid = Environment.ProcessId;
+
+        foreach (int pid in SpawnedPids.Keys.ToArray())
+        {
+            SpawnedPids.TryRemove(pid, out _);
+            if (pid == selfPid)
+                continue;
+
+            try
+            {
+                using var proc = Process.GetProcessById(pid);
+                TryTerminateProcess(proc, stoppedIds);
+            }
+            catch
+            {
+                // Process already exited or inaccessible.
+            }
+        }
+
+        Process[] allProcs;
+        try
+        {
+            allProcs = Process.GetProcesses();
+        }
+        catch
+        {
+            return stoppedIds.Count;
+        }
+
+        foreach (var proc in allProcs)
+        {
+            try
+            {
+                if (proc.Id != selfPid && IsLocalOllamaProcessName(proc.ProcessName))
+                    TryTerminateProcess(proc, stoppedIds);
+            }
+            catch
+            {
+                // Ignore transient inspection errors for exiting processes.
+            }
+            finally
+            {
+                proc.Dispose();
+            }
+        }
+
+        return stoppedIds.Count;
+    }
+
+    private static bool IsLocalOllamaProcessName(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return false;
+
+        return name.Equals("ollama", StringComparison.OrdinalIgnoreCase) ||
+               name.Equals("ollama app", StringComparison.OrdinalIgnoreCase) ||
+               name.Equals("ollama_llama_server", StringComparison.OrdinalIgnoreCase) ||
+               name.StartsWith("ollama_llama_server", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void TryTerminateProcess(Process proc, HashSet<int> stoppedIds)
+    {
+        try
+        {
+            if (proc.HasExited)
+                return;
+
+            int pid = proc.Id;
+            proc.Kill(entireProcessTree: true);
+            proc.WaitForExit(600);
+            stoppedIds.Add(pid);
+        }
+        catch
+        {
+            // Ignore race if process exited concurrently or lacks elevation.
+        }
     }
 }

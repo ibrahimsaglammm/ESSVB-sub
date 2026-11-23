@@ -45,6 +45,7 @@ public sealed class EssvbSettings
     public SubtitleStyle Style { get; set; } = new();
     public bool AutoCheckUpdates { get; set; } = true;
     public string SkippedUpdateVersion { get; set; } = "";
+    public bool StopOllamaOnExit { get; set; } = true;
 }
 
 public static class SettingsStore

@@ -278,6 +278,9 @@
                 <Button Classes="secondary" Content="Bağlantıyı Test Et" Click="OnTestTranslation" IsEnabled="{Binding !IsBusy}" Margin="0,0,10,0" />
                 <TextBlock Grid.Column="1" Text="{Binding AiTestResult}" VerticalAlignment="Center" FontSize="12" Foreground="#34D399" TextWrapping="Wrap" />
               </Grid>
+              <CheckBox IsChecked="{Binding StopOllamaOnExit}"
+                        Content="Program kapanınca yerel Ollama'yı kapat ve GPU VRAM'i boşalt"
+                        FontSize="12" Margin="0,2,0,0" />
             </StackPanel>
           </Border>
 
@@ -451,15 +454,15 @@
 
           <Border Grid.Column="1" Classes="card" Margin="7,0,0,0">
             <StackPanel Spacing="6">
-              <TextBlock Text="v1.6.0 Yenilikleri &amp; Doğrulama" FontSize="15" FontWeight="Bold" Foreground="#F5B83D" />
+              <TextBlock Text="v1.6.1 Yenilikleri &amp; Doğrulama" FontSize="15" FontWeight="Bold" Foreground="#F5B83D" />
               <TextBlock FontSize="12.5" Foreground="#34D399" TextWrapping="Wrap"
-                         Text="• Yeni: Samsung Tizen TV kurulum onarımı (MU9000 / Tizen 3.0 tek zincirli sertifika, vd_applist doğrulama &amp; canlı kurulum bildirim kutusu)." />
+                         Text="• Yeni: Program kapanınca yüklü Ollama modelleri VRAM'den boşaltılır ve yerel Ollama otomatik kapatılır." />
               <TextBlock FontSize="12.5" Foreground="#34D399" TextWrapping="Wrap"
-                         Text="• Yeni: Rust hızlandırma v2 (Crop, ToGrayscale, AddPadding &amp; Levenshtein metin benzerliği çekirdekleri)." />
+                         Text="• Yeni: Rust hızlandırma v3 (Opacity BGRA yakalama kopyası, bilinear Resize &amp; WordOverlap metin çekirdekleri)." />
               <TextBlock FontSize="12.5" Foreground="#F3EEE4" TextWrapping="Wrap"
-                         Text="• Otomatik Ollama CLI arka plan başlatma, SHA-256 doğrulamalı GitHub güncelleme denetimi ve 15 kaynak dil." />
+                         Text="• Samsung MU9000 / CU8500 tek zincirli Tizen sertifikası, canlı TV durum kutusu, otomatik Ollama CLI başlatma ve SHA-256 GitHub güncelleme denetimi." />
               <TextBlock FontSize="12.5" Foreground="#F3EEE4" TextWrapping="Wrap"
-                         Text="• Sıfır Önbellek Zehirlenmesi, 8 Oyun Türü Kütüphanesi, alt şerit HUD filtresi ve kalıcı kırmızı kota rozeti." />
+                         Text="• Sıfır Önbellek Zehirlenmesi, 8 Oyun Türü Kütüphanesi, 15 kaynak dil, alt şerit HUD filtresi ve kalıcı kırmızı kota rozeti." />
             </StackPanel>
           </Border>
         </Grid>

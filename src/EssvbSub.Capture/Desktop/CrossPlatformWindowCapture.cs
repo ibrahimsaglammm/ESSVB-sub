@@ -357,9 +357,12 @@ public sealed class CrossPlatformWindowCapture : IDisposable
         private Frame CopyPixels(int w, int h)
         {
             var pixels = new byte[w * h * 4];
-            Marshal.Copy(_bits, pixels, 0, pixels.Length);
-            for (int i = 3; i < pixels.Length; i += 4)
-                pixels[i] = 255;
+            if (!EssvbSub.Core.Pipeline.RustFastAccel.TryCopyOpaqueBgra(_bits, pixels, w * h))
+            {
+                Marshal.Copy(_bits, pixels, 0, pixels.Length);
+                for (int i = 3; i < pixels.Length; i += 4)
+                    pixels[i] = 255;
+            }
             return new Frame(pixels, w, h, w * 4);
         }
 

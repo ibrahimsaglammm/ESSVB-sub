@@ -14,7 +14,7 @@ public static class AppInfo
 {
     public const string Brand = "ESSVB";
     public const string AppName = "ESSVB-sub";
-    public const string FallbackVersion = "1.6.0";
+    public const string FallbackVersion = "1.6.1";
     public const string GitHubOwner = "ibrahimsaglammm";
     public const string GitHubRepo = "ESSVB-sub";
     public const string GitHubRepoUrl = "https://github.com/ibrahimsaglammm/ESSVB-sub";

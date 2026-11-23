@@ -8,7 +8,7 @@ const SIGNATURE_HEIGHT: usize = 12;
 
 #[no_mangle]
 pub extern "C" fn essvb_fast_version() -> u32 {
-    2
+    3
 }
 
 /// Normalizes dim HDR/dark frames so the top 0.5% luminance reaches near-white.
@@ -534,13 +534,209 @@ pub unsafe extern "C" fn essvb_levenshtein_u16(
     levenshtein_slice_u16(sa, sb)
 }
 
+#[inline]
+fn clamp_round_u8(val: f64) -> u8 {
+    let c = val.clamp(0.0, 255.0);
+    let f = c.floor();
+    let frac = c - f;
+    let r = if frac > 0.5 {
+        f + 1.0
+    } else if frac < 0.5 {
+        f
+    } else if (f as u32) % 2 == 0 {
+        f
+    } else {
+        f + 1.0
+    };
+    r.clamp(0.0, 255.0) as u8
+}
+
+/// Copies `pixel_count` BGRA pixels from `src` to `dst` while forcing alpha to 255 (opaque).
+#[no_mangle]
+pub unsafe extern "C" fn essvb_copy_opaque_bgra(
+    src: *const u8,
+    dst: *mut u8,
+    pixel_count: i32,
+) -> i32 {
+    if src.is_null() || dst.is_null() || pixel_count <= 0 {
+        return -1;
+    }
+
+    let n = pixel_count as usize;
+    let byte_len = match n.checked_mul(4) {
+        Some(v) => v,
+        None => return -1,
+    };
+
+    let src_bytes = slice::from_raw_parts(src, byte_len);
+    let dst_bytes = slice::from_raw_parts_mut(dst, byte_len);
+
+    for (sp, dp) in src_bytes.chunks_exact(4).zip(dst_bytes.chunks_exact_mut(4)) {
+        dp[0] = sp[0];
+        dp[1] = sp[1];
+        dp[2] = sp[2];
+        dp[3] = 255;
+    }
+
+    1
+}
+
+/// General bilinear BGRA32 resize matching `Frame.Resized(targetWidth, targetHeight)`.
+#[no_mangle]
+pub unsafe extern "C" fn essvb_resize_bgra(
+    src: *const u8,
+    src_w: i32,
+    src_h: i32,
+    src_stride: i32,
+    dst: *mut u8,
+    dst_w: i32,
+    dst_h: i32,
+) -> i32 {
+    if src.is_null()
+        || dst.is_null()
+        || src_w <= 0
+        || src_h <= 0
+        || src_stride < src_w * 4
+        || dst_w <= 0
+        || dst_h <= 0
+        || dst_w > 4096
+        || dst_h > 4096
+    {
+        return -1;
+    }
+
+    let sw = src_w as usize;
+    let sh = src_h as usize;
+    let ss = src_stride as usize;
+    let tw = dst_w as usize;
+    let th = dst_h as usize;
+
+    let src_bytes = slice::from_raw_parts(src, (sh - 1) * ss + sw * 4);
+    let dst_bytes = slice::from_raw_parts_mut(dst, th * tw * 4);
+
+    let scale_x = (sw as f64) / (tw as f64);
+    let scale_y = (sh as f64) / (th as f64);
+    let max_x = (sw - 1) as f64;
+    let max_y = (sh - 1) as f64;
+    let dst_stride = tw * 4;
+
+    // Precompute horizontal sampling coordinates and weights once across all rows.
+    let mut x_lut = Vec::with_capacity(tw);
+    for tx in 0..tw {
+        let sx = (((tx as f64) + 0.5) * scale_x - 0.5).clamp(0.0, max_x);
+        let x0 = sx as usize;
+        let x1 = (x0 + 1).min(sw - 1);
+        let fx = sx - (x0 as f64);
+        x_lut.push((x0 * 4, x1 * 4, fx));
+    }
+
+    for ty in 0..th {
+        let sy = (((ty as f64) + 0.5) * scale_y - 0.5).clamp(0.0, max_y);
+        let y0 = sy as usize;
+        let y1 = (y0 + 1).min(sh - 1);
+        let fy = sy - (y0 as f64);
+
+        let r0 = &src_bytes[y0 * ss..y0 * ss + sw * 4];
+        let r1 = &src_bytes[y1 * ss..y1 * ss + sw * 4];
+        let d_row = &mut dst_bytes[ty * dst_stride..(ty + 1) * dst_stride];
+
+        for (tx, &(i0, i1, fx)) in x_lut.iter().enumerate() {
+            let d = tx * 4;
+            for c in 0..4 {
+                let p00 = r0[i0 + c] as f64;
+                let p10 = r0[i1 + c] as f64;
+                let p01 = r1[i0 + c] as f64;
+                let p11 = r1[i1 + c] as f64;
+                let top = p00 + ((p10 - p00) * fx);
+                let bot = p01 + ((p11 - p01) * fx);
+                d_row[d + c] = clamp_round_u8(top + ((bot - top) * fy));
+            }
+        }
+    }
+
+    1
+}
+
+#[inline]
+fn fnv1a_u16(slice: &[u16]) -> u64 {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for &unit in slice {
+        h ^= unit as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    h
+}
+
+fn collect_space_tokens(units: &[u16]) -> Vec<(u64, &[u16])> {
+    let mut tokens = Vec::new();
+    let mut start = None;
+    for (idx, &ch) in units.iter().enumerate() {
+        if ch == 0x0020 {
+            if let Some(s) = start.take() {
+                let tok = &units[s..idx];
+                tokens.push((fnv1a_u16(tok), tok));
+            }
+        } else if start.is_none() {
+            start = Some(idx);
+        }
+    }
+    if let Some(s) = start {
+        let tok = &units[s..];
+        tokens.push((fnv1a_u16(tok), tok));
+    }
+    tokens.sort_unstable_by(|x, y| x.0.cmp(&y.0).then_with(|| x.1.cmp(y.1)));
+    tokens
+}
+
+/// Computes exact multiset word overlap (`matches / max(wordsA, wordsB)`) on space-delimited UTF-16 strings.
+#[no_mangle]
+pub unsafe extern "C" fn essvb_word_overlap_u16(
+    a: *const u16,
+    a_len: i32,
+    b: *const u16,
+    b_len: i32,
+) -> f64 {
+    if a_len <= 0 || b_len <= 0 || a.is_null() || b.is_null() {
+        return 0.0;
+    }
+
+    let sa = slice::from_raw_parts(a, a_len as usize);
+    let sb = slice::from_raw_parts(b, b_len as usize);
+
+    let ta = collect_space_tokens(sa);
+    let tb = collect_space_tokens(sb);
+    if ta.is_empty() || tb.is_empty() {
+        return 0.0;
+    }
+
+    let mut ia = 0usize;
+    let mut ib = 0usize;
+    let mut matches = 0usize;
+
+    while ia < ta.len() && ib < tb.len() {
+        let ord = ta[ia].0.cmp(&tb[ib].0).then_with(|| ta[ia].1.cmp(tb[ib].1));
+        match ord {
+            std::cmp::Ordering::Equal => {
+                matches += 1;
+                ia += 1;
+                ib += 1;
+            }
+            std::cmp::Ordering::Less => ia += 1,
+            std::cmp::Ordering::Greater => ib += 1,
+        }
+    }
+
+    let denom = ta.len().max(tb.len()) as f64;
+    (matches as f64) / denom
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_version_and_black_check() {
-        assert_eq!(essvb_fast_version(), 2);
+        assert_eq!(essvb_fast_version(), 3);
         let black = vec![0u8; 64 * 64 * 4];
         unsafe {
             assert_eq!(essvb_is_mostly_black(black.as_ptr(), 64, 64, 64 * 4), 1);
@@ -635,6 +831,29 @@ mod tests {
                 essvb_levenshtein_u16(s1.as_ptr(), s1.len() as i32, s2.as_ptr(), s2.len() as i32),
                 1
             );
+        }
+    }
+
+    #[test]
+    fn test_v3_copy_opaque_resize_and_word_overlap() {
+        let src = [10u8, 20, 30, 0, 200, 150, 100, 42];
+        let mut dst = [0u8; 8];
+        unsafe {
+            assert_eq!(essvb_copy_opaque_bgra(src.as_ptr(), dst.as_mut_ptr(), 2), 1);
+            assert_eq!(dst, [10, 20, 30, 255, 200, 150, 100, 255]);
+
+            let mut resized = [0u8; 4 * 2 * 4];
+            assert_eq!(
+                essvb_resize_bgra(src.as_ptr(), 2, 1, 8, resized.as_mut_ptr(), 4, 2),
+                1
+            );
+            assert_eq!(&resized[0..4], &[10, 20, 30, 0]);
+            assert_eq!(&resized[12..16], &[200, 150, 100, 42]);
+
+            let a: Vec<u16> = "merhaba dünya bugünkü oyun".encode_utf16().collect();
+            let b: Vec<u16> = "merhaba dünya bugünkü".encode_utf16().collect();
+            let overlap = essvb_word_overlap_u16(a.as_ptr(), a.len() as i32, b.as_ptr(), b.len() as i32);
+            assert!((overlap - 0.75).abs() < 1e-9);
         }
     }
 }

@@ -19,7 +19,9 @@ public sealed class App : Application
             var vm = new MainViewModel();
             var mainWin = new MainWindow { DataContext = vm };
             desktop.MainWindow = mainWin;
+            desktop.ShutdownRequested += (_, _) => vm.Dispose();
             desktop.Exit += (_, _) => vm.Dispose();
+            AppDomain.CurrentDomain.ProcessExit += (_, _) => vm.Dispose();
         }
         base.OnFrameworkInitializationCompleted();
     }

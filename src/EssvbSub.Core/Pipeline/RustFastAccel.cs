@@ -255,6 +255,58 @@ public static unsafe class RustFastAccel
         }
     }
 
+    public static bool TryCopyOpaqueBgra(nint srcPtr, byte[] dst, int pixelCount)
+    {
+        if (!IsAvailable || EngineVersion < 3 || srcPtr == 0 || pixelCount <= 0 ||
+            dst.Length < pixelCount * 4)
+        {
+            return false;
+        }
+
+        fixed (byte* pDst = dst)
+        {
+            return essvb_copy_opaque_bgra((byte*)srcPtr, pDst, pixelCount) == 1;
+        }
+    }
+
+    public static bool TryResizeBgra(Frame image, int targetWidth, int targetHeight, out Frame resized)
+    {
+        resized = image;
+        if (!IsAvailable || EngineVersion < 3 || !image.IsConsistent ||
+            image.Width <= 0 || image.Height <= 0 ||
+            targetWidth <= 0 || targetHeight <= 0 ||
+            targetWidth > 4096 || targetHeight > 4096)
+        {
+            return false;
+        }
+
+        var output = Frame.Blank(targetWidth, targetHeight);
+        fixed (byte* src = image.Pixels)
+        fixed (byte* dst = output.Pixels)
+        {
+            if (essvb_resize_bgra(src, image.Width, image.Height, image.Stride, dst, targetWidth, targetHeight) != 1)
+                return false;
+            resized = output;
+            return true;
+        }
+    }
+
+    public static bool TryWordOverlap(ReadOnlySpan<char> normA, ReadOnlySpan<char> normB, out double overlap)
+    {
+        overlap = 0.0;
+        if (!IsAvailable || EngineVersion < 3)
+            return false;
+        if (normA.IsEmpty || normB.IsEmpty)
+            return true;
+
+        fixed (char* pa = normA)
+        fixed (char* pb = normB)
+        {
+            overlap = essvb_word_overlap_u16((ushort*)pa, normA.Length, (ushort*)pb, normB.Length);
+            return true;
+        }
+    }
+
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
     private static extern uint essvb_fast_version();
 
@@ -290,4 +342,13 @@ public static unsafe class RustFastAccel
 
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
     private static extern int essvb_levenshtein_u16(ushort* a, int aLen, ushort* b, int bLen);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+    private static extern int essvb_copy_opaque_bgra(byte* src, byte* dst, int pixelCount);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+    private static extern int essvb_resize_bgra(byte* src, int srcW, int srcH, int srcStride, byte* dst, int dstW, int dstH);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+    private static extern double essvb_word_overlap_u16(ushort* a, int aLen, ushort* b, int bLen);
 }

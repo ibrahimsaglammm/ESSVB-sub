@@ -62,6 +62,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     private string _activeQuotaAlert = "";
     private string? _cachedLocalOllamaModel;
     private Frame? _pendingSkippedFrame;
+    private int _disposed;
     private AppUpdateInfo? _availableUpdate;
     private bool _updateBannerDismissed;
     private string _updateCheckStatusText = "Başlangıçta GitHub kontrolü bekliyor.";
@@ -294,6 +295,17 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         {
             if (_settings.AutoCheckUpdates == value) return;
             _settings.AutoCheckUpdates = value;
+            SaveAndNotify();
+        }
+    }
+
+    public bool StopOllamaOnExit
+    {
+        get => _settings.StopOllamaOnExit;
+        set
+        {
+            if (_settings.StopOllamaOnExit == value) return;
+            _settings.StopOllamaOnExit = value;
             SaveAndNotify();
         }
     }
@@ -1855,11 +1867,26 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
 
     public void Dispose()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+            return;
+
         StopPipeline();
         _server.Dispose();
         _offlineFallback.Dispose();
         foreach (var bmp in _helpBitmapCache.Values)
             bmp.Dispose();
         _helpBitmapCache.Clear();
+
+        if (_settings.StopOllamaOnExit)
+        {
+            string? localEndpoint = null;
+            if (OllamaProcessManager.IsLoopbackOllamaEndpoint(EndpointUrl))
+                localEndpoint = EndpointUrl;
+            else if (_settings.Provider == AiProviderKind.Ollama || !string.IsNullOrWhiteSpace(_cachedLocalOllamaModel))
+                localEndpoint = AiProviderCatalog.Get(AiProviderKind.Ollama).DefaultEndpoint;
+
+            if (!string.IsNullOrWhiteSpace(localEndpoint))
+                OllamaProcessManager.ShutdownLocalOllamaSync(localEndpoint, TimeSpan.FromSeconds(3));
+        }
     }
 }

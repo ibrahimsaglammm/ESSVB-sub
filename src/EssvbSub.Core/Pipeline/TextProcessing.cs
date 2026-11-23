@@ -339,6 +339,12 @@ public static class TextMatch
 
     public static double WordOverlap(string normA, string normB)
     {
+        if (string.IsNullOrEmpty(normA) || string.IsNullOrEmpty(normB))
+            return 0.0;
+
+        if (RustFastAccel.TryWordOverlap(normA.AsSpan(), normB.AsSpan(), out double fastOverlap))
+            return fastOverlap;
+
         var wordsA = normA.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         var wordsB = normB.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         if (wordsA.Length == 0 || wordsB.Length == 0)

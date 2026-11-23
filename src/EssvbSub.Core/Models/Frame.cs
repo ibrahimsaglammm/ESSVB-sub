@@ -82,6 +82,9 @@ public sealed class Frame
         if (!IsConsistent || width == 0 || height == 0)
             return cropped;
 
+        if (EssvbSub.Core.Pipeline.RustFastAccel.TryCropBgra(this, x, y, width, height, out var fastCropped))
+            return fastCropped;
+
         int rowBytes = width * 4;
         for (int row = 0; row < height; row++)
         {
@@ -109,6 +112,9 @@ public sealed class Frame
         var output = Blank(targetWidth, targetHeight);
         if (!IsConsistent || Width == 0 || Height == 0 || targetWidth <= 0 || targetHeight <= 0)
             return output;
+
+        if (EssvbSub.Core.Pipeline.RustFastAccel.TryResizeBgra(this, targetWidth, targetHeight, out var fastResized))
+            return fastResized;
 
         double scaleX = (double)Width / targetWidth;
         double scaleY = (double)Height / targetHeight;
