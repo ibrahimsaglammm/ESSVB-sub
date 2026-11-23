@@ -43,6 +43,8 @@ public sealed class EssvbSettings
     public int ScreenHeight { get; set; }
     public CropRegion ScanRegion { get; set; } = CropRegion.Default;
     public SubtitleStyle Style { get; set; } = new();
+    public bool AutoCheckUpdates { get; set; } = true;
+    public string SkippedUpdateVersion { get; set; } = "";
 }
 
 public static class SettingsStore

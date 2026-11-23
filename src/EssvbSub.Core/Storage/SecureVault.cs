@@ -33,6 +33,7 @@ public static class EssvbPaths
     public static string CacheDir => Path.Combine(DataDir, "cache");
     public static string GlossariesDir => Path.Combine(ConfigDir, "glossaries");
     public static string ProfilesDir => Path.Combine(DataDir, "tizen-profiles");
+    public static string UpdatesDir => Path.Combine(DataDir, "updates");
     public static string LogsDir => Path.Combine(DataDir, "logs");
     public static string VaultFile => Path.Combine(ConfigDir, "vault.dat");
     public static string SettingsFile => Path.Combine(ConfigDir, "settings.json");

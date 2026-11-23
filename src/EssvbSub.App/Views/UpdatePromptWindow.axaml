@@ -1,0 +1,67 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="EssvbSub.App.Views.UpdatePromptWindow"
+        Title="ESSVB-sub — Yeni Sürüm Mevcut (Güncelleme İzni)"
+        Icon="/Assets/essvb-logo.png"
+        Width="640"
+        Height="530"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        Background="#0A0D12">
+  <Grid RowDefinitions="Auto,Auto,*,Auto,Auto,Auto" Margin="20">
+
+    <!-- Header -->
+    <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="12" Margin="0,0,0,12">
+      <Image Source="/Assets/essvb-logo.png" Width="40" Height="40" />
+      <StackPanel VerticalAlignment="Center" Spacing="2">
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <TextBlock Text="Yeni ESSVB-sub Sürümü Hazır" FontSize="18" FontWeight="Bold" Foreground="#F5B83D" />
+          <Border Background="#1D2536" BorderBrush="#38BDF8" BorderThickness="1" CornerRadius="6" Padding="8,2" VerticalAlignment="Center">
+            <TextBlock x:Name="VersionBadgeText" FontSize="11.5" FontWeight="Bold" Foreground="#38BDF8" />
+          </Border>
+        </StackPanel>
+        <TextBlock Text="GitHub Releases üzerinden yeni sürüm algılandı. İndirip kurmak için izniniz isteniyor."
+                   FontSize="12.5" Foreground="#D1D5DB" TextWrapping="Wrap" />
+      </StackPanel>
+    </StackPanel>
+
+    <!-- Version Metadata Card -->
+    <Border Grid.Row="1" Classes="card" Padding="12" Margin="0,0,0,10">
+      <StackPanel Spacing="4">
+        <TextBlock x:Name="ReleaseTitleText" FontSize="13.5" FontWeight="Bold" Foreground="#F3EEE4" />
+        <TextBlock x:Name="ReleaseMetaText" FontSize="12" Foreground="#9CA3AF" TextWrapping="Wrap" />
+        <TextBlock x:Name="PlatformHintText" FontSize="11.5" Foreground="#34D399" TextWrapping="Wrap" IsVisible="False" />
+      </StackPanel>
+    </Border>
+
+    <!-- Release Notes -->
+    <Border Grid.Row="2" Background="#0F141E" BorderBrush="#252C3B" BorderThickness="1" CornerRadius="10" Padding="12" Margin="0,0,0,12">
+      <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <TextBlock x:Name="ReleaseNotesText" FontSize="12.5" Foreground="#E5E7EB" TextWrapping="Wrap" LineHeight="19" />
+      </ScrollViewer>
+    </Border>
+
+    <!-- Live Download Progress -->
+    <StackPanel x:Name="ProgressPanel" Grid.Row="3" Spacing="6" IsVisible="False" Margin="0,0,0,10">
+      <ProgressBar x:Name="DownloadProgressBar" Minimum="0" Maximum="100" Value="0" Height="8" Foreground="#F5B83D" Background="#1D2434" />
+      <TextBlock x:Name="ProgressStatusText" FontSize="12" Foreground="#38BDF8" TextWrapping="Wrap" />
+    </StackPanel>
+
+    <!-- Result / Error Feedback -->
+    <TextBlock x:Name="ResultText" Grid.Row="4" FontSize="12.5" FontWeight="SemiBold" TextWrapping="Wrap"
+               IsVisible="False" Margin="0,0,0,10" />
+
+    <!-- User Consent Action Bar -->
+    <Grid Grid.Row="5" ColumnDefinitions="*,Auto,Auto,Auto">
+      <Button x:Name="SkipButton" Grid.Column="0" Classes="secondary" Content="Bu Sürümü Atla"
+              Click="OnSkipVersion" HorizontalAlignment="Left" />
+      <Button x:Name="OpenGitHubButton" Grid.Column="1" Classes="secondary" Content="GitHub'da Gör"
+              Click="OnOpenGitHub" Margin="0,0,8,0" />
+      <Button x:Name="LaterButton" Grid.Column="2" Classes="secondary" Content="Daha Sonra"
+              Click="OnLater" Margin="0,0,8,0" />
+      <Button x:Name="InstallButton" Grid.Column="3" Classes="primary" Content="Evet, İndir ve Güncelle"
+              Click="OnInstallUpdate" />
+    </Grid>
+
+  </Grid>
+</Window>

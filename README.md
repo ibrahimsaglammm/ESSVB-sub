@@ -7,7 +7,7 @@
 </p>
 
 - **Marka & Lisans:** ESSVB Özel Mülkiyet Lisansı ([LICENSE](LICENSE))
-- **Güncel Sürüm:** `v1.4.0` (Windows 11 tek dosya `.exe`, 15 kaynak dil + Otomatik Algıla, 8 Oyun Türü Kütüphanesi, akıllı alt şerit yakalama, kalıcı kırmızı kota uyarısı & uygulama içi **`Yardım & Hakkında`** sekmesi)
+- **Güncel Sürüm:** `v1.5.0` (Windows 11 tek dosya `.exe`, otomatik arka plan **Ollama CLI başlatma**, kullanıcı izinli & SHA-256 doğrulamalı **GitHub güncelleme denetimi**, 15 kaynak dil + Otomatik Algıla, 8 Oyun Türü Kütüphanesi, akıllı alt şerit yakalama, kalıcı kırmızı kota uyarısı & **`Yardım & Hakkında`** sekmesi)
 - **Sıfır Telemetri:** Hiçbir dış analiz, izleme, reklam veya ortak veri havuzuna görüntü/metin gönderilmez.
 - **Güvenli Yerel TV Yayını:** Yalnızca 6 haneli tek kullanımlık PIN eşleştirmesiyle üretilen şifreli token ile bağlanılır; CGNAT alt ağları engellenir.
 - **Ayrıntılı Resimli Anlatım:** Yeni başlayanlar için adım adım rehber ➔ **[KURULUM_REHBERI.md](KURULUM_REHBERI.md)**
@@ -17,9 +17,9 @@
 ## GitHub'dan Tek Tıkla Kurulum
 
 ### Windows 11 İçin Hazır Tek Dosya `.exe` (En Kolay — `.NET` Kurulumu Gerekmez!)
-1. [GitHub Releases](https://github.com/ibrahimsaglammm/ESSVB-sub/releases/latest) sayfasından **`ESSVB-sub-v1.4.0-win11-x64.exe`** dosyasını indirin.
+1. [GitHub Releases](https://github.com/ibrahimsaglammm/ESSVB-sub/releases/latest) sayfasından **`ESSVB-sub-v1.5.0-win11-x64.exe`** dosyasını indirin.
 2. Çift tıklayıp doğrudan çalıştırın — `.NET 10`, Rust `essvb_fast.dll`, 5 adımlı rehber ve `tv-tizen/` modülleri tek `.exe` içindedir!
-   - İsteğe bağlı SHA-256 doğrulama: aynı sayfadaki `.exe.sha256` dosyası veya `Get-FileHash ESSVB-sub-v1.4.0-win11-x64.exe` ile doğrulayabilirsiniz.
+   - İsteğe bağlı SHA-256 doğrulama: aynı sayfadaki `.exe.sha256` dosyası veya `Get-FileHash ESSVB-sub-v1.5.0-win11-x64.exe` ile doğrulayabilirsiniz.
 
 ### Kaynak Koddan Kurulum & Tek Dosya `.exe` Derleme (Windows 11)
 1. **`Code -> Download ZIP`** ile indirin veya klonlayın:
@@ -30,7 +30,7 @@
    ```powershell
    powershell -ExecutionPolicy Bypass -File .\build-windows-exe.ps1
    ```
-   - `build-windows-exe.ps1` yerel Rust + .NET Self-Contained `.exe` çıktısını `dist\ESSVB-sub-v1.4.0-win11-x64.exe` yoluna üretir ve `--self-check` ile doğrular.
+   - `build-windows-exe.ps1` yerel Rust + .NET Self-Contained `.exe` çıktısını `dist\ESSVB-sub-v1.5.0-win11-x64.exe` yoluna üretir ve `--self-check` ile doğrular.
 
 ### CachyOS (Arch Linux)
 ```bash
@@ -73,7 +73,7 @@ chmod +x install-cachyos.sh
 - **Sürükle & Boyutlandır Overlay:** **`Altyazı Penceresini Taşı / Boyutlandır`** butonuyla kutuyu istediğiniz yere sürükleyip 8 kenar/köşeden yeniden boyutlandırabilirsiniz.
 - **%0 Tam Şeffaf – %100 Karartı:** Arka plan karartısı `%0` iken karanlık kutu tamamen kalkar; okunaklı dış konturlu metin görünür.
 - **Konuşmacı Renk Ayrımı:** Farklı konuşmacılar ve `- Satır 1 / - Satır 2` diyalogları otomatik renk ve sol vurgu şeridiyle ayrılır.
-- **Uygulama İçi `Yardım & Hakkında` Sekmesi:** Program sürümünü (`v1.4.0` + commit doğrulama), Rust hızlandırma durumunu ve bu 5 resimli rehberi doğrudan uygulamanın içinden görüntüleyebilirsiniz.
+- **Uygulama İçi `Yardım & Hakkında` Sekmesi & Güncelleme Denetimi:** Program sürümünü (`v1.5.0` + commit doğrulama), Rust hızlandırma durumunu ve bu 5 resimli rehberi doğrudan uygulamanın içinden görüntüleyebilir; GitHub'da yeni sürüm çıktığında sizden izin isteyen pencerede SHA-256 doğrulamalı güncelleme yapabilirsiniz.
 - **Çoklu Dil, Alt Şerit Filtresi & Oyun Türü Kütüphaneleri:** 15 kaynak dil + `Otomatik Algıla`, **Sadece Alt Şeridi Yakala** HUD filtresi, **8 yerleşik Oyun/İçerik Türü Kütüphanesi** (`Aksiyon/Suç`, `RPG & Fantastik`, `FPS & Taktik`, `Anime & JRPG`, `Korku`, `Bilim Kurgu`, `Film & Dizi`) + `%LOCALAPPDATA%\ESSVB-sub\glossaries\*.json` özel sözlükleri ve kota anında altyazı altında küçük **kalıcı kırmızı uyarı bandı** + otomatik yerel **Ollama yedeği**.
 
 ![Altyazı Penceresi ve Kullanım Rehberi](docs/images/05-altyazi-penceresi-ve-kullanim.png)

@@ -17,6 +17,7 @@ using EssvbSub.Core.Models;
 using EssvbSub.Core.Pipeline;
 using EssvbSub.Core.Server;
 using EssvbSub.Core.Storage;
+using EssvbSub.Core.Updates;
 using EssvbSub.Translation;
 using EssvbSub.Translation.Providers;
 
@@ -60,6 +61,13 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     private string _activeQuotaAlert = "";
     private string? _cachedLocalOllamaModel;
     private Frame? _pendingSkippedFrame;
+    private AppUpdateInfo? _availableUpdate;
+    private bool _updateBannerDismissed;
+    private string _updateCheckStatusText = "Başlangıçta GitHub kontrolü bekliyor.";
+    private bool _isCheckingUpdates;
+    private bool _isInstallingUpdate;
+    private double _updateProgressPercent;
+    private string _updateProgressText = "";
 
     public MainViewModel()
     {
@@ -101,6 +109,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     public event Action<bool>? OverlayEditModeChanged;
     public event Action<double, double, double, double, bool>? OverlayBoundsChanged;
     public event Func<Task<(CropRegion Region, int X, int Y, int Width, int Height)?>>? SelectRegionRequested;
+    public event Action<AppUpdateInfo>? UpdatePromptRequested;
+    public event Action? AppShutdownRequested;
 
     public ObservableCollection<WindowTarget> AvailableWindows { get; } = [];
     public ObservableCollection<DiscoveredModel> AvailableModels { get; } = [];
@@ -250,6 +260,67 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     public string AppLicenseSummary => AppInfo.LicenseSummary;
     public string GitHubRepoUrl => AppInfo.GitHubRepoUrl;
 
+    public bool AutoCheckUpdates
+    {
+        get => _settings.AutoCheckUpdates;
+        set
+        {
+            if (_settings.AutoCheckUpdates == value) return;
+            _settings.AutoCheckUpdates = value;
+            SaveAndNotify();
+        }
+    }
+
+    public AppUpdateInfo? AvailableUpdate
+    {
+        get => _availableUpdate;
+        private set
+        {
+            if (Equals(_availableUpdate, value)) return;
+            _availableUpdate = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(HasAvailableUpdate));
+            OnPropertyChanged(nameof(IsUpdateBannerVisible));
+            OnPropertyChanged(nameof(UpdateBannerText));
+        }
+    }
+
+    public bool HasAvailableUpdate => _availableUpdate is not null;
+    public bool IsUpdateBannerVisible => _availableUpdate is not null && !_updateBannerDismissed;
+    public string UpdateBannerText => _availableUpdate is { } u
+        ? $"GitHub'da yeni sürüm mevcut: v{u.LatestVersion} (Mevcut: v{u.CurrentVersion}) — Kurmak için izniniz bekleniyor."
+        : "";
+
+    public string UpdateCheckStatusText
+    {
+        get => _updateCheckStatusText;
+        private set { if (_updateCheckStatusText != value) { _updateCheckStatusText = value; OnPropertyChanged(); } }
+    }
+
+    public bool IsCheckingUpdates
+    {
+        get => _isCheckingUpdates;
+        private set { if (_isCheckingUpdates != value) { _isCheckingUpdates = value; OnPropertyChanged(); } }
+    }
+
+    public bool IsInstallingUpdate
+    {
+        get => _isInstallingUpdate;
+        private set { if (_isInstallingUpdate != value) { _isInstallingUpdate = value; OnPropertyChanged(); } }
+    }
+
+    public double UpdateProgressPercent
+    {
+        get => _updateProgressPercent;
+        private set { if (Math.Abs(_updateProgressPercent - value) > 0.05) { _updateProgressPercent = value; OnPropertyChanged(); } }
+    }
+
+    public string UpdateProgressText
+    {
+        get => _updateProgressText;
+        private set { if (_updateProgressText != value) { _updateProgressText = value; OnPropertyChanged(); } }
+    }
+
     public void SelectHelpGuideByIndex(int zeroBasedIndex)
     {
         if (zeroBasedIndex >= 0 && zeroBasedIndex < HelpGuides.Count)
@@ -270,6 +341,114 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
 
     public void OpenGitHubRepo() => TryOpenShellTarget(AppInfo.GitHubRepoUrl);
     public void OpenGitHubReleases() => TryOpenShellTarget(AppInfo.GitHubReleasesUrl);
+
+    public void OpenGitHubReleaseUrl(string? url)
+    {
+        string safe = GitHubUpdateService.IsTrustedGitHubUrl(url) ? url! : AppInfo.GitHubReleasesUrl;
+        TryOpenShellTarget(safe);
+    }
+
+    public void RequestUpdateConsentPrompt()
+    {
+        if (_availableUpdate is { } update)
+            UpdatePromptRequested?.Invoke(update);
+    }
+
+    public void DismissUpdateBanner()
+    {
+        _updateBannerDismissed = true;
+        OnPropertyChanged(nameof(IsUpdateBannerVisible));
+    }
+
+    public void SkipUpdateVersion(string version)
+    {
+        _settings.SkippedUpdateVersion = version?.Trim() ?? "";
+        _updateBannerDismissed = true;
+        SaveAndNotify(nameof(IsUpdateBannerVisible));
+        UpdateCheckStatusText = $"v{_settings.SkippedUpdateVersion} sürümü atlandı (istediğiniz zaman tekrar kontrol edebilirsiniz).";
+    }
+
+    public async Task CheckForUpdatesAsync(bool userInitiated)
+    {
+        if (IsCheckingUpdates || IsInstallingUpdate)
+            return;
+
+        IsCheckingUpdates = true;
+        if (userInitiated)
+            UpdateCheckStatusText = "GitHub Releases kontrol ediliyor…";
+
+        try
+        {
+            var res = await GitHubUpdateService.CheckForUpdateAsync(AppInfo.Version);
+            if (res.Status == UpdateCheckStatus.UpdateAvailable && res.Update is { } update)
+            {
+                _updateBannerDismissed = false;
+                AvailableUpdate = update;
+                UpdateCheckStatusText = res.Message;
+                AppendLog(res.Message);
+
+                bool skipped = !userInitiated &&
+                               string.Equals(_settings.SkippedUpdateVersion, update.LatestVersion, StringComparison.OrdinalIgnoreCase);
+                if (!skipped)
+                    UpdatePromptRequested?.Invoke(update);
+            }
+            else if (res.Status == UpdateCheckStatus.UpToDate)
+            {
+                AvailableUpdate = null;
+                UpdateCheckStatusText = res.Message;
+                if (userInitiated)
+                    AppendLog(res.Message);
+            }
+            else
+            {
+                UpdateCheckStatusText = userInitiated
+                    ? res.Message
+                    : "Başlangıç güncelleme kontrolü tamamlanamadı (ağ veya hız sınırı).";
+                AppendLog($"Güncelleme kontrolü: {res.Message}");
+            }
+        }
+        finally
+        {
+            IsCheckingUpdates = false;
+        }
+    }
+
+    public async Task<UpdateInstallResult> InstallAvailableUpdateAsync()
+    {
+        if (_availableUpdate is not { } update)
+            return new UpdateInstallResult(false, "Kurulacak yeni sürüm bulunamadı.");
+
+        IsInstallingUpdate = true;
+        UpdateProgressPercent = 0;
+        UpdateProgressText = "Hazırlanıyor…";
+        try
+        {
+            if (IsRunning)
+                StopPipeline();
+
+            var progress = new Progress<UpdateDownloadProgress>(p => Dispatcher.UIThread.Post(() =>
+            {
+                UpdateProgressPercent = p.Percent;
+                UpdateProgressText = p.StageText;
+            }));
+
+            var result = await GitHubUpdateService.DownloadAndInstallUpdateAsync(update, progress);
+            UpdateCheckStatusText = result.Message;
+            AppendLog(result.Message);
+
+            if (result.Success && result.RequiresAppExit)
+            {
+                await Task.Delay(350);
+                AppShutdownRequested?.Invoke();
+            }
+
+            return result;
+        }
+        finally
+        {
+            IsInstallingUpdate = false;
+        }
+    }
 
     public void OpenConfigFolder()
     {
@@ -792,11 +971,21 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         OnPropertyChanged(nameof(CaptureSourceSummary));
     }
 
-    public async Task RefreshModelsAsync()
+    public async Task RefreshModelsAsync(bool autoStartOllama = false)
     {
         var provider = _settings.Provider;
         string endpoint = EndpointUrl;
         string apiKey = SettingsStore.GetApiKey(provider);
+
+        if (autoStartOllama && provider == AiProviderKind.Ollama)
+        {
+            var ensured = await EnsureOllamaReadyForActionAsync(refreshModelsIfStarted: false);
+            if (!ensured.IsReady && ensured.Status != OllamaEnsureStatus.NotLocalEndpoint)
+            {
+                ModelDiscoveryStatus = ensured.Message;
+                return;
+            }
+        }
 
         ModelDiscoveryStatus = "Modeller taranıyor…";
         var res = await ModelDiscoveryService.DiscoverModelsAsync(provider, endpoint, apiKey);
@@ -1085,10 +1274,22 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
 
     public async Task TestTranslationConnectionAsync()
     {
+        if (IsBusy) return;
         IsBusy = true;
         AiTestResult = "Test ediliyor…";
         try
         {
+            if (_settings.Provider == AiProviderKind.Ollama)
+            {
+                var ensured = await EnsureOllamaReadyForActionAsync(refreshModelsIfStarted: true);
+                if (!ensured.IsReady && ensured.Status != OllamaEnsureStatus.NotLocalEndpoint)
+                {
+                    AiTestResult = $"Hata: {ensured.Message}";
+                    AppendLog($"Ollama bağlantı testi hatası: {ensured.Message}");
+                    return;
+                }
+            }
+
             var translator = BuildTranslator();
             if (translator is UniversalAiTranslator ai)
             {
@@ -1112,10 +1313,63 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
-    public void ToggleStartStop()
+    public async Task ToggleStartStopAsync()
     {
-        if (IsRunning) StopPipeline();
-        else StartPipeline();
+        if (IsRunning)
+        {
+            StopPipeline();
+            return;
+        }
+
+        if (IsBusy)
+            return;
+
+        if (_settings.Provider == AiProviderKind.Ollama)
+        {
+            IsBusy = true;
+            try
+            {
+                var ensured = await EnsureOllamaReadyForActionAsync(refreshModelsIfStarted: true);
+                if (!ensured.IsReady && ensured.Status != OllamaEnsureStatus.NotLocalEndpoint)
+                {
+                    StatusMessage = ensured.Message;
+                    ActiveQuotaAlert = $"⚠ {ensured.Message}";
+                    AppendLog($"Ollama başlatılamadı: {ensured.Message}");
+                    return;
+                }
+            }
+            finally
+            {
+                IsBusy = false;
+            }
+        }
+
+        StartPipeline();
+    }
+
+    private async Task<OllamaEnsureResult> EnsureOllamaReadyForActionAsync(bool refreshModelsIfStarted)
+    {
+        var res = await OllamaProcessManager.EnsureRunningAsync(
+            EndpointUrl,
+            msg => Dispatcher.UIThread.Post(() =>
+            {
+                StatusMessage = msg;
+                AiTestResult = msg;
+                AppendLog(msg);
+            }));
+
+        if (res.Status == OllamaEnsureStatus.StartedSuccessfully)
+            AppendLog($"Ollama CLI arka planda başlatıldı ({res.ExecutablePath ?? "ollama"}).");
+
+        if (res.IsReady && (res.Status == OllamaEnsureStatus.StartedSuccessfully ||
+                            (refreshModelsIfStarted && string.IsNullOrEmpty(_cachedLocalOllamaModel))))
+        {
+            if (refreshModelsIfStarted)
+                await RefreshModelsAsync(autoStartOllama: false);
+            await ProbeLocalOllamaModelAsync();
+        }
+
+        return res;
     }
 
     private void StartPipeline()

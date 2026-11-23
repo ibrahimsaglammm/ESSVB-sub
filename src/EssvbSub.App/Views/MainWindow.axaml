@@ -50,8 +50,19 @@
       </Grid>
     </Border>
 
-    <!-- Persistent Quota / Error + TV Pairing Banners -->
+    <!-- Update Available + Persistent Quota / Error + TV Pairing Banners -->
     <StackPanel Grid.Row="1" Spacing="8" Margin="0,0,0,10">
+      <Border Classes="card" Background="#121F2D" BorderBrush="#38BDF8" BorderThickness="1.3" Padding="12,8"
+              IsVisible="{Binding IsUpdateBannerVisible}">
+        <Grid ColumnDefinitions="*,Auto,Auto,Auto">
+          <TextBlock Text="{Binding UpdateBannerText}" FontSize="12.5" FontWeight="SemiBold" Foreground="#38BDF8"
+                     VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,10,0" />
+          <Button Grid.Column="1" Classes="primary" Content="Güncelleme İzni Ver" Click="OnOpenUpdateConsent" Padding="10,6" Margin="0,0,8,0" />
+          <Button Grid.Column="2" Classes="secondary" Content="GitHub'da Gör" Click="OnOpenGitHubReleases" Padding="10,6" Margin="0,0,8,0" />
+          <Button Grid.Column="3" Classes="secondary" Content="Sonra" Click="OnDismissUpdateBanner" Padding="10,6" />
+        </Grid>
+      </Border>
+
       <Border Classes="card" Background="#221015" BorderBrush="#EF4444" BorderThickness="1.2" Padding="12,8"
               IsVisible="{Binding HasActiveQuotaAlert}">
         <TextBlock Text="{Binding ActiveQuotaAlert}" FontSize="12.5" FontWeight="SemiBold" Foreground="#FF6B7A" TextWrapping="Wrap" />
@@ -332,11 +343,20 @@
                 <TextBlock Grid.Row="5" Grid.Column="0" Text="Ayar &amp; Şifreli Kasa:" FontSize="12.5" Foreground="#9CA3AF" Margin="0,0,8,0" />
                 <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding AppConfigDirectory}" FontSize="12" Foreground="#F3EEE4" TextTrimming="CharacterEllipsis" />
               </Grid>
+
+              <Separator Background="#252C3B" Height="1" Margin="0,4" />
+              <Grid ColumnDefinitions="*,Auto">
+                <CheckBox Grid.Column="0" IsChecked="{Binding AutoCheckUpdates}"
+                          Content="Açılışta GitHub Güncellemelerini Otomatik Denetle" FontSize="12" />
+                <TextBlock Grid.Column="1" Text="{Binding UpdateCheckStatusText}" FontSize="11.5"
+                           Foreground="#38BDF8" VerticalAlignment="Center" Margin="10,0,0,0" TextWrapping="Wrap" />
+              </Grid>
             </StackPanel>
 
             <StackPanel Grid.Column="2" Spacing="8" VerticalAlignment="Center" Margin="16,0,0,0">
               <Button Classes="primary" Content="GitHub Deposunu Aç" Click="OnOpenGitHubRepo" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
-              <Button Classes="secondary" Content="Son Sürümleri Kontrol Et" Click="OnOpenGitHubReleases" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+              <Button Classes="secondary" Content="Güncellemeleri Kontrol Et" Click="OnCheckForUpdates" IsEnabled="{Binding !IsCheckingUpdates}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+              <Button Classes="secondary" Content="İzin / Kurulum Penceresini Aç" Click="OnOpenUpdateConsent" IsVisible="{Binding HasAvailableUpdate}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
               <Button Classes="secondary" Content="Program Klasörünü Aç" Click="OnOpenAppFolder" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
               <Button Classes="secondary" Content="Ayar Klasörünü Aç" Click="OnOpenConfigFolder" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
             </StackPanel>
@@ -397,15 +417,15 @@
 
           <Border Grid.Column="1" Classes="card" Margin="7,0,0,0">
             <StackPanel Spacing="6">
-              <TextBlock Text="v1.4.0 Yenilikleri &amp; Doğrulama" FontSize="15" FontWeight="Bold" Foreground="#F5B83D" />
+              <TextBlock Text="v1.5.0 Yenilikleri &amp; Doğrulama" FontSize="15" FontWeight="Bold" Foreground="#F5B83D" />
               <TextBlock FontSize="12.5" Foreground="#34D399" TextWrapping="Wrap"
-                         Text="• Yeni: Çoklu Kaynak Dil (Otomatik + 14 dil) &amp; 8 Oyun Türü Kütüphanesi + özel kullanıcı sözlükleri (glossaries/)." />
+                         Text="• Yeni: 'Çeviriyi Başlat' / 'Bağlantıyı Test Et' / 'Modelleri Tara' Ollama kapalıysa CLI'ı otomatik başlatır." />
+              <TextBlock FontSize="12.5" Foreground="#34D399" TextWrapping="Wrap"
+                         Text="• Yeni: GitHub yeni sürüm denetimi + SHA-256 doğrulamalı ve kullanıcı izinli uygulama içi güncelleme." />
               <TextBlock FontSize="12.5" Foreground="#F3EEE4" TextWrapping="Wrap"
-                         Text="• Akıllı Alt Şerit Yakalama: WinRT OCR koordinatlarıyla sol/sağ/üst HUD yazıları ve sabit tabelalar elenir." />
+                         Text="• Çoklu Kaynak Dil (Otomatik + 14 dil), 8 Oyun Türü Kütüphanesi ve alt şerit HUD filtresi." />
               <TextBlock FontSize="12.5" Foreground="#F3EEE4" TextWrapping="Wrap"
-                         Text="• Sıfır Önbellek Zehirlenmesi &amp; Kalıcı Kırmızı Kota Uyarısı: 429 anında otomatik Ollama yedeği + küçük kırmızı uyarı bandı." />
-              <TextBlock FontSize="12.5" Foreground="#F3EEE4" TextWrapping="Wrap"
-                         Text="• Gemini safetySettings (BLOCK_NONE), Retry-After uyumu ve Windows 11 kurulumsuz tek dosya .exe." />
+                         Text="• Sıfır Önbellek Zehirlenmesi, kalıcı kırmızı kota rozeti, Gemini BLOCK_NONE ve Retry-After uyumu." />
             </StackPanel>
           </Border>
         </Grid>

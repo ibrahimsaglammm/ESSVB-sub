@@ -2,8 +2,10 @@
 
 using System.IO.Compression;
 using System.Net;
+using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Text;
 using System.Text.Json;
 using EssvbSub.Capture.Ocr;
 using EssvbSub.Capture.TvInstall;
@@ -12,6 +14,7 @@ using EssvbSub.Core.Models;
 using EssvbSub.Core.Pipeline;
 using EssvbSub.Core.Server;
 using EssvbSub.Core.Storage;
+using EssvbSub.Core.Updates;
 using EssvbSub.Translation;
 using EssvbSub.Translation.Providers;
 
@@ -402,11 +405,11 @@ public sealed class EssvbSubTests
         Assert.Equal(string.Empty, AppInfo.ParseShortCommit("1.4.0"));
         Assert.Equal("v1.4.0", AppInfo.FormatVersionLabel("1.4.0"));
 
-        Assert.Equal("1.4.0", AppInfo.ParseSemanticVersion(null));
-        Assert.Equal("v1.4.0", AppInfo.FormatVersionLabel(null));
+        Assert.Equal("1.5.0", AppInfo.ParseSemanticVersion(null));
+        Assert.Equal("v1.5.0", AppInfo.FormatVersionLabel(null));
 
-        Assert.Equal("1.4.0", AppInfo.Version);
-        Assert.Equal("v1.4.0", AppInfo.VersionBadge);
+        Assert.Equal("1.5.0", AppInfo.Version);
+        Assert.Equal("v1.5.0", AppInfo.VersionBadge);
     }
 
     [Fact]
@@ -534,6 +537,246 @@ public sealed class EssvbSubTests
         Assert.True(SourceLanguageCatalog.All.Count >= 15);
         Assert.Equal("JA", SourceLanguageCatalog.Get("ja").DeepLCode);
         Assert.Equal("kor", SourceLanguageCatalog.Get("ko").TesseractCode);
+    }
+
+    [Fact]
+    public async Task OllamaProcessManager_DetectsLoopback_FindsExecutable_AndStartsViaCoreSeam()
+    {
+        Assert.True(OllamaProcessManager.IsLoopbackOllamaEndpoint(null));
+        Assert.True(OllamaProcessManager.IsLoopbackOllamaEndpoint("http://127.0.0.1:11434/v1"));
+        Assert.True(OllamaProcessManager.IsLoopbackOllamaEndpoint("http://localhost:11434/v1"));
+        Assert.False(OllamaProcessManager.IsLoopbackOllamaEndpoint("http://192.168.1.50:11434/v1"));
+
+        string fakeBinDir = Path.Combine(Path.GetTempPath(), "essvb-ollama-bin");
+        string fakeExe = Path.Combine(fakeBinDir, "ollama.exe");
+        Assert.Equal(fakeExe, OllamaProcessManager.FindOllamaExecutable(
+            p => string.Equals(p, fakeExe, StringComparison.OrdinalIgnoreCase),
+            pathEnv: $"C:\\NonExistent;{fakeBinDir}",
+            isWindowsOverride: true));
+        Assert.Equal("/usr/bin/ollama", OllamaProcessManager.FindOllamaExecutable(
+            p => string.Equals(p, "/usr/bin/ollama", StringComparison.Ordinal),
+            pathEnv: "/usr/local/sbin:/usr/bin",
+            isWindowsOverride: false));
+
+        // Remote endpoint -> NotLocalEndpoint without spawning
+        bool spawnedRemote = false;
+        var remoteRes = await OllamaProcessManager.EnsureRunningCoreAsync(
+            "http://192.168.1.50:11434/v1",
+            onProgress: null,
+            probeAsync: _ => Task.FromResult(false),
+            findExecutable: () => "ollama",
+            startServer: (_, _) => { spawnedRemote = true; return new SpawnedOllamaProcess(1, () => false, () => null); },
+            readyTimeout: TimeSpan.FromSeconds(1),
+            pollInterval: TimeSpan.FromMilliseconds(10));
+        Assert.Equal(OllamaEnsureStatus.NotLocalEndpoint, remoteRes.Status);
+        Assert.False(spawnedRemote);
+
+        // Already running -> AlreadyRunning without spawning
+        bool spawnedAlready = false;
+        var alreadyRes = await OllamaProcessManager.EnsureRunningCoreAsync(
+            "http://127.0.0.1:11434/v1",
+            onProgress: null,
+            probeAsync: _ => Task.FromResult(true),
+            findExecutable: () => "ollama",
+            startServer: (_, _) => { spawnedAlready = true; return new SpawnedOllamaProcess(1, () => false, () => null); },
+            readyTimeout: TimeSpan.FromSeconds(1),
+            pollInterval: TimeSpan.FromMilliseconds(10));
+        Assert.Equal(OllamaEnsureStatus.AlreadyRunning, alreadyRes.Status);
+        Assert.True(alreadyRes.IsReady);
+        Assert.False(spawnedAlready);
+
+        // Missing executable -> ExecutableNotFound
+        var missingRes = await OllamaProcessManager.EnsureRunningCoreAsync(
+            "http://127.0.0.1:11434/v1",
+            onProgress: null,
+            probeAsync: _ => Task.FromResult(false),
+            findExecutable: () => null,
+            startServer: (_, _) => new SpawnedOllamaProcess(1, () => false, () => null),
+            readyTimeout: TimeSpan.FromSeconds(1),
+            pollInterval: TimeSpan.FromMilliseconds(10));
+        Assert.Equal(OllamaEnsureStatus.ExecutableNotFound, missingRes.Status);
+        Assert.False(missingRes.IsReady);
+
+        // Probe fails twice then succeeds after background start
+        int probeCount = 0;
+        string? progressSeen = null;
+        var startedRes = await OllamaProcessManager.EnsureRunningCoreAsync(
+            "http://127.0.0.1:11434/v1",
+            onProgress: m => progressSeen = m,
+            probeAsync: _ => Task.FromResult(++probeCount >= 3),
+            findExecutable: () => fakeExe,
+            startServer: (_, _) => new SpawnedOllamaProcess(4242, () => false, () => null),
+            readyTimeout: TimeSpan.FromSeconds(3),
+            pollInterval: TimeSpan.FromMilliseconds(15));
+        Assert.Equal(OllamaEnsureStatus.StartedSuccessfully, startedRes.Status);
+        Assert.True(startedRes.IsReady);
+        Assert.Equal(4242, startedRes.ProcessId);
+        Assert.False(string.IsNullOrWhiteSpace(progressSeen));
+
+        // Early non-zero exit -> StartFailed
+        var failedRes = await OllamaProcessManager.EnsureRunningCoreAsync(
+            "http://127.0.0.1:11434/v1",
+            onProgress: null,
+            probeAsync: _ => Task.FromResult(false),
+            findExecutable: () => fakeExe,
+            startServer: (_, _) => new SpawnedOllamaProcess(5151, () => true, () => 1),
+            readyTimeout: TimeSpan.FromSeconds(2),
+            pollInterval: TimeSpan.FromMilliseconds(10));
+        Assert.Equal(OllamaEnsureStatus.StartFailed, failedRes.Status);
+        Assert.False(failedRes.IsReady);
+
+        // Timed out -> TimedOut
+        var timedOutRes = await OllamaProcessManager.EnsureRunningCoreAsync(
+            "http://127.0.0.1:11434/v1",
+            onProgress: null,
+            probeAsync: _ => Task.FromResult(false),
+            findExecutable: () => fakeExe,
+            startServer: (_, _) => new SpawnedOllamaProcess(6161, () => false, () => null),
+            readyTimeout: TimeSpan.FromMilliseconds(60),
+            pollInterval: TimeSpan.FromMilliseconds(15));
+        Assert.Equal(OllamaEnsureStatus.TimedOut, timedOutRes.Status);
+
+        string formattedErr = UniversalAiTranslator.FormatConnectionError(
+            AiProviderKind.Ollama,
+            new HttpRequestException("refused", new SocketException((int)SocketError.ConnectionRefused)));
+        Assert.Contains("Ollama sunucusu kapalı", formattedErr);
+    }
+
+    [Fact]
+    public async Task GitHubUpdateService_ComparesSemVer_ValidatesUrlsAndSha256_AndParsesRelease()
+    {
+        Assert.True(GitHubUpdateService.IsNewerVersion("1.4.0", "v1.5.0"));
+        Assert.False(GitHubUpdateService.IsNewerVersion("1.5.0", "1.5.0"));
+        Assert.False(GitHubUpdateService.IsNewerVersion("1.5.0", "1.4.9"));
+        Assert.True(GitHubUpdateService.IsNewerVersion("1.5.0-beta.1", "1.5.0"));
+        Assert.True(GitHubUpdateService.IsNewerVersion("1.9.0", "1.10.0"));
+
+        Assert.True(GitHubUpdateService.IsTrustedGitHubUrl("https://github.com/ibrahimsaglammm/ESSVB-sub/releases/tag/v1.5.0"));
+        Assert.True(GitHubUpdateService.IsTrustedGitHubUrl("https://objects.githubusercontent.com/github-production-release-asset-1/test.exe"));
+        Assert.False(GitHubUpdateService.IsTrustedGitHubUrl("http://github.com/ibrahimsaglammm/ESSVB-sub"));
+        Assert.False(GitHubUpdateService.IsTrustedGitHubUrl("https://evil-github.com/test.exe"));
+        Assert.False(GitHubUpdateService.IsTrustedGitHubUrl("https://example.com/test.exe"));
+
+        Assert.Null(GitHubUpdateService.SanitizeAssetFileName("../evil.exe"));
+        Assert.Null(GitHubUpdateService.SanitizeAssetFileName("dir/evil.exe"));
+        Assert.Equal("ESSVB-sub-v1.6.0-win11-x64.exe", GitHubUpdateService.SanitizeAssetFileName("ESSVB-sub-v1.6.0-win11-x64.exe"));
+
+        byte[] goodPayload = "valid-essvb-release-binary"u8.ToArray();
+        string goodHex = Convert.ToHexString(SHA256.HashData(goodPayload)).ToLowerInvariant();
+        string validShaDoc = $"{goodHex}  ESSVB-sub-v1.6.0-win11-x64.exe\n";
+        Assert.NotNull(GitHubUpdateService.ParseExpectedSha256(validShaDoc, "ESSVB-sub-v1.6.0-win11-x64.exe"));
+        Assert.Null(GitHubUpdateService.ParseExpectedSha256(validShaDoc, "wrong-name.exe"));
+        Assert.Null(GitHubUpdateService.ParseExpectedSha256("not-a-hex  ESSVB-sub-v1.6.0-win11-x64.exe", "ESSVB-sub-v1.6.0-win11-x64.exe"));
+
+        const string releaseJson = """
+            {
+              "tag_name": "v1.6.0",
+              "name": "ESSVB-sub v1.6.0",
+              "html_url": "https://github.com/ibrahimsaglammm/ESSVB-sub/releases/tag/v1.6.0",
+              "draft": false,
+              "prerelease": false,
+              "published_at": "2026-11-24T12:00:00Z",
+              "body": "Otomatik Ollama baslatma ve guncelleyici",
+              "assets": [
+                {
+                  "name": "ESSVB-sub-v1.6.0-win11-x64.exe",
+                  "size": 26,
+                  "browser_download_url": "https://github.com/ibrahimsaglammm/ESSVB-sub/releases/download/v1.6.0/ESSVB-sub-v1.6.0-win11-x64.exe"
+                },
+                {
+                  "name": "ESSVB-sub-v1.6.0-win11-x64.exe.sha256",
+                  "size": 97,
+                  "browser_download_url": "https://github.com/ibrahimsaglammm/ESSVB-sub/releases/download/v1.6.0/ESSVB-sub-v1.6.0-win11-x64.exe.sha256"
+                }
+              ]
+            }
+            """;
+
+        bool serveTampered = true;
+        using var handler = new StubHttpMessageHandler(req =>
+        {
+            string url = req.RequestUri!.AbsoluteUri;
+            if (url.EndsWith("/releases/latest", StringComparison.Ordinal))
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(releaseJson, Encoding.UTF8, "application/json")
+                };
+            }
+            if (url.EndsWith(".sha256", StringComparison.Ordinal))
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(validShaDoc, Encoding.UTF8, "text/plain")
+                };
+            }
+            if (url.EndsWith(".exe", StringComparison.Ordinal))
+            {
+                byte[] bytes = serveTampered ? "tampered-payload"u8.ToArray() : goodPayload;
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent(bytes)
+                };
+            }
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        });
+        using var mockHttp = new HttpClient(handler);
+
+        var checkNew = await GitHubUpdateService.CheckForUpdateAsync("1.5.0", mockHttp);
+        Assert.Equal(UpdateCheckStatus.UpdateAvailable, checkNew.Status);
+        Assert.NotNull(checkNew.Update);
+        Assert.True(checkNew.Update!.CanInAppUpdateWindows);
+        Assert.Equal("1.6.0", checkNew.Update.LatestVersion);
+        Assert.Equal("https://github.com/ibrahimsaglammm/ESSVB-sub/releases/download/v1.6.0/ESSVB-sub-v1.6.0-win11-x64.exe", checkNew.Update.WindowsExeAsset!.DownloadUrl);
+
+        var checkSame = await GitHubUpdateService.CheckForUpdateAsync("1.6.0", mockHttp);
+        Assert.Equal(UpdateCheckStatus.UpToDate, checkSame.Status);
+        Assert.Null(checkSame.Update);
+
+        string tempDir = Path.Combine(Path.GetTempPath(), "essvb-upd-test-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            string stagedDir = Path.Combine(tempDir, "updates");
+            var tamperedRes = await GitHubUpdateService.DownloadAndInstallCoreAsync(
+                checkNew.Update,
+                progress: null,
+                httpClient: mockHttp,
+                updatesDirectoryOverride: stagedDir,
+                packagedWindowsOverride: true,
+                executablePathOverride: Path.Combine(tempDir, "ESSVB-sub-v1.5.0-win11-x64.exe"),
+                launchUpdaterOverride: (_, _, _, _) => { },
+                CancellationToken.None);
+            Assert.False(tamperedRes.Success);
+            Assert.Contains("SHA-256", tamperedRes.Message);
+            Assert.False(File.Exists(Path.Combine(stagedDir, "ESSVB-sub-v1.6.0-win11-x64.exe.part")));
+
+            serveTampered = false;
+            string? capturedScript = null;
+            string? capturedDest = null;
+            var validRes = await GitHubUpdateService.DownloadAndInstallCoreAsync(
+                checkNew.Update,
+                progress: null,
+                httpClient: mockHttp,
+                updatesDirectoryOverride: stagedDir,
+                packagedWindowsOverride: true,
+                executablePathOverride: Path.Combine(tempDir, "ESSVB-sub-v1.5.0-win11-x64.exe"),
+                launchUpdaterOverride: (script, _, dest, _) => { capturedScript = script; capturedDest = dest; },
+                CancellationToken.None);
+            Assert.True(validRes.Success);
+            Assert.True(validRes.RequiresAppExit);
+            Assert.True(File.Exists(capturedScript));
+            Assert.Equal(Path.Combine(tempDir, "ESSVB-sub-v1.6.0-win11-x64.exe"), capturedDest);
+        }
+        finally
+        {
+            try { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true); } catch { }
+        }
+    }
+
+    private sealed class StubHttpMessageHandler(Func<HttpRequestMessage, HttpResponseMessage> responder) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(responder(request));
     }
 
     private static Frame RenderBitmapTextFrame(string text, int scale, int width, int height)

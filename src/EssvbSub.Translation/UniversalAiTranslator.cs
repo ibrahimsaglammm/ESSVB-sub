@@ -3,6 +3,7 @@
 using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
+using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Encodings.Web;
@@ -49,12 +50,12 @@ public sealed partial class UniversalAiTranslator : ITranslationOutcomeTranslato
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
     };
 
-    private static readonly HttpClient SharedCloudHttp = new() { Timeout = TimeSpan.FromSeconds(8) };
+    private static readonly HttpClient SharedCloudHttp = new() { Timeout = TimeSpan.FromSeconds(15) };
     private static readonly HttpClient SharedLocalHttp = new(new SocketsHttpHandler
     {
         UseProxy = false,
         AllowAutoRedirect = false
-    }) { Timeout = TimeSpan.FromSeconds(15) };
+    }) { Timeout = TimeSpan.FromSeconds(60) };
 
     private readonly AiProviderKind _provider;
     private readonly string _apiKey;
@@ -181,9 +182,14 @@ public sealed partial class UniversalAiTranslator : ITranslationOutcomeTranslato
 
         try
         {
+            var descriptor = AiProviderCatalog.Get(_provider);
+            TimeSpan requestTimeout = descriptor.IsLocal ? TimeSpan.FromSeconds(25) : TimeSpan.FromSeconds(10);
+            using var requestCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            requestCts.CancelAfter(requestTimeout);
+
             using var req = BuildHttpRequest(text, context, mediaTitle, characterNames);
-            using var resp = await _http.SendAsync(req, cancellationToken).ConfigureAwait(false);
-            string rawBody = await resp.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            using var resp = await _http.SendAsync(req, requestCts.Token).ConfigureAwait(false);
+            string rawBody = await resp.Content.ReadAsStringAsync(requestCts.Token).ConfigureAwait(false);
 
             if (!resp.IsSuccessStatusCode)
             {
@@ -220,7 +226,8 @@ public sealed partial class UniversalAiTranslator : ITranslationOutcomeTranslato
         }
         catch (Exception ex)
         {
-            string errAlert = $"⚠ {_provider} bağlantı hatası ({ex.Message})";
+            string friendly = FormatConnectionError(_provider, ex);
+            string errAlert = $"⚠ {_provider} bağlantı hatası ({friendly})";
             StatusWarning?.Invoke(errAlert);
             int pauseSec = _provider is AiProviderKind.Ollama or AiProviderKind.LmStudio ? 4 : 10;
             SetPause(TimeSpan.FromSeconds(pauseSec), isRateLimited: false, errAlert);
@@ -260,10 +267,40 @@ public sealed partial class UniversalAiTranslator : ITranslationOutcomeTranslato
                 ? new TranslationTestResult(false, "Model boş yanıt döndürdü.")
                 : new TranslationTestResult(true, "Bağlantı başarılı.", sample);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
-            return new TranslationTestResult(false, ex.Message);
+            return new TranslationTestResult(false, FormatConnectionError(_provider, ex));
         }
+    }
+
+    internal static string FormatConnectionError(AiProviderKind provider, Exception ex)
+    {
+        if (HasConnectionRefused(ex))
+        {
+            return provider == AiProviderKind.Ollama
+                ? "Ollama sunucusu kapalı (bağlantı reddedildi) — 'Çeviriyi Başlat' veya 'Bağlantıyı Test Et' ile otomatik başlatılabilir."
+                : $"{AiProviderCatalog.Get(provider).DisplayName} sunucusuna bağlantı reddedildi (sunucu kapalı olabilir).";
+        }
+
+        if (ex is OperationCanceledException)
+            return "İstek zaman aşımına uğradı (model belleğe yükleniyor olabilir, tekrar deneyin).";
+
+        return ex.Message;
+    }
+
+    private static bool HasConnectionRefused(Exception? ex)
+    {
+        while (ex is not null)
+        {
+            if (ex is SocketException { SocketErrorCode: SocketError.ConnectionRefused })
+                return true;
+            ex = ex.InnerException;
+        }
+        return false;
     }
 
     internal static void ValidateEndpointUri(string endpoint, bool requireHttpsForRemote)

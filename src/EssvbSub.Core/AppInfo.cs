@@ -14,9 +14,12 @@ public static class AppInfo
 {
     public const string Brand = "ESSVB";
     public const string AppName = "ESSVB-sub";
-    public const string FallbackVersion = "1.4.0";
+    public const string FallbackVersion = "1.5.0";
+    public const string GitHubOwner = "ibrahimsaglammm";
+    public const string GitHubRepo = "ESSVB-sub";
     public const string GitHubRepoUrl = "https://github.com/ibrahimsaglammm/ESSVB-sub";
     public const string GitHubReleasesUrl = "https://github.com/ibrahimsaglammm/ESSVB-sub/releases/latest";
+    public const string GitHubLatestReleaseApiUrl = "https://api.github.com/repos/ibrahimsaglammm/ESSVB-sub/releases/latest";
     public const string LicenseSummary = "ESSVB Özel Mülkiyet Lisansı (%100 Yerel • Sıfır Telemetri)";
 
     private static Assembly TargetAssembly
@@ -59,6 +62,12 @@ public static class AppInfo
 
     public static string ExecutableDirectory =>
         Path.GetDirectoryName(ExecutablePath) ?? AppContext.BaseDirectory;
+
+    public static bool IsPackagedWindowsExecutable =>
+        OperatingSystem.IsWindows() &&
+        File.Exists(ExecutablePath) &&
+        ExecutablePath.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) &&
+        !Path.GetFileNameWithoutExtension(ExecutablePath).Equals("dotnet", StringComparison.OrdinalIgnoreCase);
 
     public static string ConfigDirectory => EssvbPaths.ConfigDir;
 

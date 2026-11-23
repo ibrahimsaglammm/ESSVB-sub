@@ -2,22 +2,28 @@
 
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
 using EssvbSub.App.ViewModels;
 using EssvbSub.Core.Models;
+using EssvbSub.Core.Updates;
 
 namespace EssvbSub.App.Views;
 
 public partial class MainWindow : Window
 {
     private OverlayWindow? _overlayWindow;
+    private MainViewModel? _hookedVm;
+    private bool _updateDialogOpen;
+    private bool _startupUpdateCheckDone;
 
     public MainWindow()
     {
         InitializeComponent();
         DataContextChanged += (_, _) => HookViewModel();
+        Opened += OnWindowOpenedAsync;
         Closed += (_, _) =>
         {
             _overlayWindow?.Close();
@@ -27,9 +33,26 @@ public partial class MainWindow : Window
 
     private MainViewModel? Vm => DataContext as MainViewModel;
 
+    private async void OnWindowOpenedAsync(object? sender, EventArgs e)
+    {
+        if (_startupUpdateCheckDone)
+            return;
+        _startupUpdateCheckDone = true;
+
+        try
+        {
+            await Task.Delay(1500);
+            if (Vm is { AutoCheckUpdates: true } vm)
+                await vm.CheckForUpdatesAsync(userInitiated: false);
+        }
+        catch { }
+    }
+
     private void HookViewModel()
     {
-        if (Vm is not { } vm) return;
+        if (Vm is not { } vm || ReferenceEquals(_hookedVm, vm))
+            return;
+        _hookedVm = vm;
 
         OverlayWindow EnsureOverlay()
         {
@@ -88,6 +111,32 @@ public partial class MainWindow : Window
             await picker.ShowDialog(this);
             return picker.SelectedResult;
         };
+
+        vm.UpdatePromptRequested += async update => await ShowUpdatePromptDialogAsync(vm, update);
+        vm.AppShutdownRequested += () =>
+        {
+            if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+                desktop.Shutdown(0);
+            else
+                Close();
+        };
+    }
+
+    private async Task ShowUpdatePromptDialogAsync(MainViewModel vm, AppUpdateInfo update)
+    {
+        if (_updateDialogOpen)
+            return;
+
+        _updateDialogOpen = true;
+        try
+        {
+            var dialog = new UpdatePromptWindow(vm, update);
+            await dialog.ShowDialog(this);
+        }
+        finally
+        {
+            _updateDialogOpen = false;
+        }
     }
 
     private void OnSelectPlayStation(object? sender, RoutedEventArgs e) { if (Vm is not null) { Vm.IsHelpTabActive = false; Vm.Mode = OperatingMode.PlayStation; } }
@@ -103,6 +152,9 @@ public partial class MainWindow : Window
     private void OnNextHelpGuide(object? sender, RoutedEventArgs e) => Vm?.NextHelpGuide();
     private void OnOpenGitHubRepo(object? sender, RoutedEventArgs e) => Vm?.OpenGitHubRepo();
     private void OnOpenGitHubReleases(object? sender, RoutedEventArgs e) => Vm?.OpenGitHubReleases();
+    private async void OnCheckForUpdates(object? sender, RoutedEventArgs e) { if (Vm is not null) await Vm.CheckForUpdatesAsync(userInitiated: true); }
+    private void OnOpenUpdateConsent(object? sender, RoutedEventArgs e) => Vm?.RequestUpdateConsentPrompt();
+    private void OnDismissUpdateBanner(object? sender, RoutedEventArgs e) => Vm?.DismissUpdateBanner();
     private void OnOpenAppFolder(object? sender, RoutedEventArgs e) => Vm?.OpenAppFolder();
     private void OnOpenConfigFolder(object? sender, RoutedEventArgs e) => Vm?.OpenConfigFolder();
 
@@ -148,7 +200,7 @@ public partial class MainWindow : Window
         modal.Content = layout;
         modal.Show(this);
     }
-    private void OnToggleStartStop(object? sender, RoutedEventArgs e) => Vm?.ToggleStartStop();
+    private async void OnToggleStartStop(object? sender, RoutedEventArgs e) { if (Vm is not null) await Vm.ToggleStartStopAsync(); }
     private void OnRefreshWindows(object? sender, RoutedEventArgs e) => Vm?.RefreshWindows();
     private async void OnSelectRegion(object? sender, RoutedEventArgs e) { if (Vm is not null) await Vm.SelectScreenRegionAsync(); }
     private void OnClearRegion(object? sender, RoutedEventArgs e) => Vm?.ClearScreenRegion();
@@ -161,7 +213,7 @@ public partial class MainWindow : Window
     private async void OnLaunchSamsungTv(object? sender, RoutedEventArgs e) { if (Vm is not null) await Vm.LaunchSamsungTvAppAsync(); }
     private void OnApproveTvPairing(object? sender, RoutedEventArgs e) => Vm?.ApproveTvPairing(true);
     private void OnRejectTvPairing(object? sender, RoutedEventArgs e) => Vm?.ApproveTvPairing(false);
-    private async void OnRefreshModels(object? sender, RoutedEventArgs e) { if (Vm is not null) await Vm.RefreshModelsAsync(); }
+    private async void OnRefreshModels(object? sender, RoutedEventArgs e) { if (Vm is not null) await Vm.RefreshModelsAsync(autoStartOllama: true); }
     private async void OnTestTranslation(object? sender, RoutedEventArgs e) { if (Vm is not null) await Vm.TestTranslationConnectionAsync(); }
     private void OnToggleOverlayEdit(object? sender, RoutedEventArgs e) { if (Vm is not null) Vm.IsOverlayEditMode = !Vm.IsOverlayEditMode; }
     private void OnShowOverlayPreview(object? sender, RoutedEventArgs e) => Vm?.ShowOverlayPreview();
