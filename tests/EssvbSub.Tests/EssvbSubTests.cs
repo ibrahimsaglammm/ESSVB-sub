@@ -262,13 +262,14 @@ public sealed class EssvbSubTests
         Assert.Equal("7.0", TizenPackageAdapter.ResolvePlatformVersion(null, SamsungTvModel.AutoDetect, "UE65CU8500UXTK"));
         Assert.Equal("3.0", TizenPackageAdapter.ResolvePlatformVersion(null, SamsungTvModel.AutoDetect, "UE55MU9000"));
         Assert.Equal(TizenSignatureDigest.Sha512, TizenPackageAdapter.GetRecommendedDigest("7.0"));
-        Assert.Equal(TizenSignatureDigest.Sha256, TizenPackageAdapter.GetRecommendedDigest("3.0"));
+        Assert.Equal(TizenSignatureDigest.Sha512, TizenPackageAdapter.GetRecommendedDigest("3.0"));
+        Assert.Equal(TizenSignatureDigest.Sha256, TizenPackageAdapter.GetRecommendedDigest("2.4"));
         Assert.False(TizenPackageAdapter.RequiresDeviceProfile("7.0"));
         Assert.False(TizenPackageAdapter.RequiresLegacyAdaptation("7.0"));
 
         string cmd = SamsungTvInstaller.BuildSafeLaunchCommand("http://192.168.1.10:8787", "tok-123", 2);
-        Assert.StartsWith("0 was_execute EssvbSubT.EssvbSub PAYLOAD b64:", cmd);
-        string b64 = cmd["0 was_execute EssvbSubT.EssvbSub PAYLOAD b64:".Length..];
+        Assert.StartsWith("0 was_execute EssvbSubTv.EssvbSub PAYLOAD b64:", cmd);
+        string b64 = cmd["0 was_execute EssvbSubTv.EssvbSub PAYLOAD b64:".Length..];
         using var payloadDoc = JsonDocument.Parse(System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(b64)));
         Assert.Equal("http://192.168.1.10:8787", payloadDoc.RootElement.GetProperty("server").GetString());
         Assert.Equal("tok-123", payloadDoc.RootElement.GetProperty("token").GetString());
@@ -405,11 +406,11 @@ public sealed class EssvbSubTests
         Assert.Equal(string.Empty, AppInfo.ParseShortCommit("1.4.0"));
         Assert.Equal("v1.4.0", AppInfo.FormatVersionLabel("1.4.0"));
 
-        Assert.Equal("1.5.0", AppInfo.ParseSemanticVersion(null));
-        Assert.Equal("v1.5.0", AppInfo.FormatVersionLabel(null));
+        Assert.Equal("1.6.0", AppInfo.ParseSemanticVersion(null));
+        Assert.Equal("v1.6.0", AppInfo.FormatVersionLabel(null));
 
-        Assert.Equal("1.5.0", AppInfo.Version);
-        Assert.Equal("v1.5.0", AppInfo.VersionBadge);
+        Assert.Equal("1.6.0", AppInfo.Version);
+        Assert.Equal("v1.6.0", AppInfo.VersionBadge);
     }
 
     [Fact]
@@ -770,6 +771,127 @@ public sealed class EssvbSubTests
         finally
         {
             try { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void RustFastAccel_V2Kernels_MatchCSharpReferenceOutputs()
+    {
+        if (!RustFastAccel.IsAvailable || RustFastAccel.EngineVersion < 2)
+            return;
+
+        var frame = Frame.Blank(8, 6);
+        // Set (3, 2) to B=10, G=100, R=200, A=255 -> luma = (600 + 600 + 10) / 10 = 121
+        int idx = (2 * frame.Stride) + (3 * 4);
+        frame.Pixels[idx] = 10;
+        frame.Pixels[idx + 1] = 100;
+        frame.Pixels[idx + 2] = 200;
+        frame.Pixels[idx + 3] = 255;
+
+        Assert.True(RustFastAccel.TryCropBgra(frame, 3, 2, 2, 2, out var cropped));
+        Assert.Equal(2, cropped.Width);
+        Assert.Equal(2, cropped.Height);
+        Assert.Equal(10, cropped.Pixels[0]);
+        Assert.Equal(200, cropped.Pixels[2]);
+
+        Assert.True(RustFastAccel.TryToGrayscale(frame, invert: false, out var gray));
+        Assert.Equal(121, gray[(2 * 8) + 3]);
+
+        Assert.True(RustFastAccel.TryToGrayscale(frame, invert: true, out var grayInv));
+        Assert.Equal(134, grayInv[(2 * 8) + 3]);
+
+        Assert.True(RustFastAccel.TryAddPadding(frame, pad: 2, out var padded));
+        Assert.Equal(12, padded.Width);
+        Assert.Equal(10, padded.Height);
+        Assert.Equal(255, padded.Pixels[3]);
+        int padIdx = (4 * padded.Stride) + (5 * 4);
+        Assert.Equal(200, padded.Pixels[padIdx + 2]);
+
+        Assert.True(RustFastAccel.TryLevenshtein("çeviri", "çevir", out int dist1));
+        Assert.Equal(1, dist1);
+        Assert.True(RustFastAccel.TryLevenshtein("kitten", "sitting", out int dist2));
+        Assert.Equal(3, dist2);
+    }
+
+    [Fact]
+    public void SamsungInstallDiagnostics_ClassifiesErrors_AndParsesVdAppList()
+    {
+        Assert.Equal(SamsungInstallProblem.None, SamsungInstallDiagnostics.Classify("end_process(ok)"));
+        Assert.Equal(SamsungInstallProblem.CertificateMismatch, SamsungInstallDiagnostics.Classify("install failed[118, -12], reason: same id and different certificate"));
+        Assert.Equal(SamsungInstallProblem.TvClockWrong, SamsungInstallDiagnostics.Classify("install failed[118, -12], reason: Check certificate error : not valid yet"));
+        Assert.Equal(SamsungInstallProblem.CertificateRejected, SamsungInstallDiagnostics.Classify("install failed[118, -12], reason: Check certificate error : expired"));
+        Assert.Equal(SamsungInstallProblem.NotEnoughSpace, SamsungInstallDiagnostics.Classify("download failed[116]"));
+        Assert.Equal(SamsungInstallProblem.PackageBlocked, SamsungInstallDiagnostics.Classify("install failed[118, -22]"));
+        Assert.Equal(SamsungInstallProblem.Incompatible, SamsungInstallDiagnostics.Classify("install failed[118, -4]"));
+        Assert.Equal(SamsungInstallProblem.Other, SamsungInstallDiagnostics.Classify("val[fail] unknown reason"));
+
+        const string sampleAppList = """
+            get app list...
+            apps count: 2
+            ---------------------------------------------------------------------------------------------
+            --------------app_id                                =11101200001-------------
+            --------------app_title                             =Netflix-------------
+            --------------app_version                           =1.0.0-------------
+            ---------------------------------------------------------------------------------------------
+            --------------app_tizen_id                          =EssvbSubTv.EssvbSub-------------
+            --------------app_id                                =EssvbSubTv-------------
+            --------------app_title                             =ESSVB-sub-------------
+            --------------app_version                           =1.6.0-------------
+            ---------------------------------------------------------------------------------------------
+            """;
+
+        var found = SamsungInstallDiagnostics.ParseInstalledApp(sampleAppList, SamsungTvInstaller.AppId, SamsungTvInstaller.PackageId);
+        Assert.True(found.Installed);
+        Assert.Equal("1.6.0", found.Version);
+        Assert.Equal("ESSVB-sub", found.Title);
+
+        var absent = SamsungInstallDiagnostics.ParseInstalledApp("apps count: 1\n--------------app_id = 11101200001-------------", SamsungTvInstaller.AppId, SamsungTvInstaller.PackageId);
+        Assert.False(absent.Installed);
+        Assert.Null(absent.Version);
+
+        // Verify RepairPkcs12ChainIfNeeded deduplicates 3-cert PKCS#12 down to 2 certs while preserving the private key
+        using var rootKey = RSA.Create(2048);
+        using var caKey1 = RSA.Create(2048);
+        using var caKey2 = RSA.Create(2048);
+        using var leafKey = RSA.Create(2048);
+
+        var rootReq = new CertificateRequest("CN=Test Samsung Root CA", rootKey, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        rootReq.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, false, 0, true));
+        using var rootCa = rootReq.CreateSelfSigned(DateTimeOffset.UtcNow.AddYears(-10), DateTimeOffset.UtcNow.AddYears(10));
+
+        var caReq1 = new CertificateRequest("CN=Test Samsung CA", caKey1, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        caReq1.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, false, 0, true));
+        using var oldCaOnly = caReq1.Create(rootCa, DateTimeOffset.UtcNow.AddYears(-5), DateTimeOffset.UtcNow.AddYears(1), [10, 1]);
+
+        var caReq2 = new CertificateRequest("CN=Test Samsung CA", caKey2, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        caReq2.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, false, 0, true));
+        using var newCaOnly = caReq2.Create(rootCa, DateTimeOffset.UtcNow.AddDays(-10), DateTimeOffset.UtcNow.AddYears(5), [10, 2]);
+        using var newCaWithKey = newCaOnly.CopyWithPrivateKey(caKey2);
+
+        var leafReq = new CertificateRequest("CN=TizenSDK", leafKey, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        using var leafOnly = leafReq.Create(newCaWithKey, DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(365), [1, 2, 3, 4]);
+        using var leafWithKey = leafOnly.CopyWithPrivateKey(leafKey);
+
+        string p12Dir = Path.Combine(Path.GetTempPath(), $"essvb-p12-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(p12Dir);
+        try
+        {
+            string p12Path = Path.Combine(p12Dir, "distributor.p12");
+            const string pw = "test-pass-123";
+            var bloated = new X509Certificate2Collection { leafWithKey, oldCaOnly, newCaOnly };
+            var pbe = new PbeParameters(PbeEncryptionAlgorithm.TripleDes3KeyPkcs12, HashAlgorithmName.SHA1, 2048);
+            File.WriteAllBytes(p12Path, bloated.ExportPkcs12(pbe, pw));
+
+            Assert.True(SamsungTvInstaller.RepairPkcs12ChainIfNeeded(p12Path, pw));
+            var after = X509CertificateLoader.LoadPkcs12CollectionFromFile(p12Path, pw, X509KeyStorageFlags.EphemeralKeySet);
+            Assert.Equal(2, after.Count);
+            Assert.Contains(after, c => c.HasPrivateKey);
+            Assert.Contains(after, c => !c.HasPrivateKey && c.Thumbprint == newCaOnly.Thumbprint);
+            Assert.False(SamsungTvInstaller.RepairPkcs12ChainIfNeeded(p12Path, pw));
+        }
+        finally
+        {
+            try { if (Directory.Exists(p12Dir)) Directory.Delete(p12Dir, recursive: true); } catch { }
         }
     }
 

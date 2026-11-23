@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- Copyright (c) 2026 ESSVB. All Rights Reserved. -->
 <widget xmlns="http://www.w3.org/ns/widgets" xmlns:tizen="http://tizen.org/ns/widgets"
-        id="https://essvb.local/sub" version="1.5.0" viewmodes="maximized">
-    <tizen:application id="EssvbSubT.EssvbSub" package="EssvbSubT" required_version="2.4"/>
+        id="https://essvb.local/sub" version="1.6.0" viewmodes="maximized">
+    <tizen:application id="EssvbSubTv.EssvbSub" package="EssvbSubTv" required_version="2.4"/>
     <content src="index.html"/>
     <feature name="http://tizen.org/feature/screen.size.normal.1080.1920"/>
     <icon src="icon.png"/>
@@ -17,11 +17,6 @@
     <tizen:privilege name="http://tizen.org/privilege/internet"/>
     <tizen:privilege name="http://tizen.org/privilege/network.get"/>
     <tizen:profile name="tv-samsung"/>
-    <tizen:metadata key="http://tizen.org/metadata/app_ui_type/base_screen_resolution" value="extensive"/>
-    <tizen:app-control>
-        <tizen:src name="index.html"/>
-        <tizen:operation name="http://tizen.org/appcontrol/operation/default"/>
-    </tizen:app-control>
     <tizen:setting screen-orientation="landscape" context-menu="disable" background-support="disable"
                    encryption="disable" install-location="auto" hwkey-event="enable"/>
 </widget>

@@ -14,6 +14,7 @@ public static unsafe class RustFastAccel
 {
     private const string LibName = "essvb_fast";
 
+    public static uint EngineVersion { get; }
     public static bool IsAvailable { get; }
 
     static RustFastAccel()
@@ -21,10 +22,12 @@ public static unsafe class RustFastAccel
         try
         {
             NativeLibrary.SetDllImportResolver(typeof(RustFastAccel).Assembly, ResolveNativeLib);
-            IsAvailable = essvb_fast_version() == 1;
+            EngineVersion = essvb_fast_version();
+            IsAvailable = EngineVersion >= 1;
         }
         catch
         {
+            EngineVersion = 0;
             IsAvailable = false;
         }
     }
@@ -165,6 +168,93 @@ public static unsafe class RustFastAccel
         }
     }
 
+    public static bool TryCropBgra(Frame image, int x, int y, int cropWidth, int cropHeight, out Frame cropped)
+    {
+        cropped = Frame.Blank(0, 0);
+        if (!IsAvailable || EngineVersion < 2 || !image.IsConsistent ||
+            image.Width <= 0 || image.Height <= 0 ||
+            x < 0 || y < 0 || cropWidth <= 0 || cropHeight <= 0 ||
+            x + cropWidth > image.Width || y + cropHeight > image.Height)
+        {
+            return false;
+        }
+
+        var output = Frame.Blank(cropWidth, cropHeight);
+        fixed (byte* src = image.Pixels)
+        fixed (byte* dst = output.Pixels)
+        {
+            if (essvb_crop_bgra(src, image.Width, image.Height, image.Stride, x, y, cropWidth, cropHeight, dst) != 1)
+                return false;
+            cropped = output;
+            return true;
+        }
+    }
+
+    public static bool TryToGrayscale(Frame image, bool invert, out byte[] grayscale)
+    {
+        grayscale = [];
+        if (!IsAvailable || EngineVersion < 2 || !image.IsConsistent || image.Width <= 0 || image.Height <= 0)
+            return false;
+
+        var buf = new byte[image.Width * image.Height];
+        fixed (byte* src = image.Pixels)
+        fixed (byte* dst = buf)
+        {
+            if (essvb_to_grayscale(src, image.Width, image.Height, image.Stride, invert ? 1 : 0, dst) != 1)
+                return false;
+            grayscale = buf;
+            return true;
+        }
+    }
+
+    public static bool TryAddPadding(Frame image, int pad, out Frame padded)
+    {
+        padded = image;
+        if (!IsAvailable || EngineVersion < 2 || !image.IsConsistent ||
+            pad <= 0 || image.Width <= 0 || image.Height <= 0 ||
+            image.Width + (pad * 2) > 4096 || image.Height + (pad * 2) > 4096)
+        {
+            return false;
+        }
+
+        var output = Frame.Blank(image.Width + (pad * 2), image.Height + (pad * 2));
+        fixed (byte* src = image.Pixels)
+        fixed (byte* dst = output.Pixels)
+        {
+            if (essvb_add_padding(src, image.Width, image.Height, image.Stride, pad, dst) != 1)
+                return false;
+            padded = output;
+            return true;
+        }
+    }
+
+    public static bool TryLevenshtein(ReadOnlySpan<char> a, ReadOnlySpan<char> b, out int distance)
+    {
+        distance = 0;
+        if (!IsAvailable || EngineVersion < 2)
+            return false;
+        if (a.Length == 0)
+        {
+            distance = b.Length;
+            return true;
+        }
+        if (b.Length == 0)
+        {
+            distance = a.Length;
+            return true;
+        }
+
+        fixed (char* pa = a)
+        fixed (char* pb = b)
+        {
+            int res = essvb_levenshtein_u16((ushort*)pa, a.Length, (ushort*)pb, b.Length);
+            if (res < 0)
+                return false;
+            distance = res;
+            return true;
+        }
+    }
+
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
     private static extern uint essvb_fast_version();
 
@@ -188,4 +278,16 @@ public static unsafe class RustFastAccel
 
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
     private static extern int essvb_is_mostly_black(byte* src, int width, int height, int stride);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+    private static extern int essvb_crop_bgra(byte* src, int srcW, int srcH, int srcStride, int x, int y, int cropW, int cropH, byte* dst);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+    private static extern int essvb_to_grayscale(byte* src, int width, int height, int stride, int invert, byte* dst);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+    private static extern int essvb_add_padding(byte* src, int width, int height, int stride, int pad, byte* dst);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+    private static extern int essvb_levenshtein_u16(ushort* a, int aLen, ushort* b, int bLen);
 }

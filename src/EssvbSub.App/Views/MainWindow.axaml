@@ -151,7 +151,41 @@
               <WrapPanel Orientation="Horizontal">
                 <Button Classes="secondary" Content="TV'ye Otomatik Kur &amp; Aç" Click="OnInstallSamsungTv" IsEnabled="{Binding !IsBusy}" Margin="0,0,8,4" />
                 <Button Classes="secondary" Content="TV'de Başlat" Click="OnLaunchSamsungTv" IsEnabled="{Binding !IsBusy}" Margin="0,0,8,4" />
+                <Button Classes="secondary" Content="Durumu Kontrol Et" Click="OnCheckSamsungTvStatus" IsEnabled="{Binding !IsBusy}" Margin="0,0,0,4" />
               </WrapPanel>
+              <Border Background="{Binding TvStatusBackground}"
+                      BorderBrush="{Binding TvStatusBorderBrush}"
+                      BorderThickness="1.2"
+                      CornerRadius="8"
+                      Padding="10,8">
+                <StackPanel Spacing="6">
+                  <Grid ColumnDefinitions="Auto,*">
+                    <Border Background="#171E2C"
+                            BorderBrush="{Binding TvStatusBorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="6"
+                            Padding="8,2"
+                            Margin="0,0,8,0"
+                            VerticalAlignment="Center">
+                      <TextBlock Text="{Binding TvInstalledBadgeText}"
+                                 FontSize="11.5"
+                                 FontWeight="Bold"
+                                 Foreground="{Binding TvStatusForeground}" />
+                    </Border>
+                    <TextBlock Grid.Column="1"
+                               Text="{Binding TvInstallStatusText}"
+                               FontSize="12"
+                               Foreground="{Binding TvStatusForeground}"
+                               TextWrapping="Wrap"
+                               VerticalAlignment="Center" />
+                  </Grid>
+                  <ProgressBar IsIndeterminate="True"
+                               IsVisible="{Binding IsTvInstallBusy}"
+                               Height="4"
+                               Foreground="#38BDF8"
+                               Background="#1D2434" />
+                </StackPanel>
+              </Border>
               <CheckBox IsChecked="{Binding AutoLaunchTvApp}" Content="Çeviri Başlarken TV Uygulamasını Otomatik Aç" />
             </StackPanel>
           </Border>
@@ -417,15 +451,15 @@
 
           <Border Grid.Column="1" Classes="card" Margin="7,0,0,0">
             <StackPanel Spacing="6">
-              <TextBlock Text="v1.5.0 Yenilikleri &amp; Doğrulama" FontSize="15" FontWeight="Bold" Foreground="#F5B83D" />
+              <TextBlock Text="v1.6.0 Yenilikleri &amp; Doğrulama" FontSize="15" FontWeight="Bold" Foreground="#F5B83D" />
               <TextBlock FontSize="12.5" Foreground="#34D399" TextWrapping="Wrap"
-                         Text="• Yeni: 'Çeviriyi Başlat' / 'Bağlantıyı Test Et' / 'Modelleri Tara' Ollama kapalıysa CLI'ı otomatik başlatır." />
+                         Text="• Yeni: Samsung Tizen TV kurulum onarımı (MU9000 / Tizen 3.0 tek zincirli sertifika, vd_applist doğrulama &amp; canlı kurulum bildirim kutusu)." />
               <TextBlock FontSize="12.5" Foreground="#34D399" TextWrapping="Wrap"
-                         Text="• Yeni: GitHub yeni sürüm denetimi + SHA-256 doğrulamalı ve kullanıcı izinli uygulama içi güncelleme." />
+                         Text="• Yeni: Rust hızlandırma v2 (Crop, ToGrayscale, AddPadding &amp; Levenshtein metin benzerliği çekirdekleri)." />
               <TextBlock FontSize="12.5" Foreground="#F3EEE4" TextWrapping="Wrap"
-                         Text="• Çoklu Kaynak Dil (Otomatik + 14 dil), 8 Oyun Türü Kütüphanesi ve alt şerit HUD filtresi." />
+                         Text="• Otomatik Ollama CLI arka plan başlatma, SHA-256 doğrulamalı GitHub güncelleme denetimi ve 15 kaynak dil." />
               <TextBlock FontSize="12.5" Foreground="#F3EEE4" TextWrapping="Wrap"
-                         Text="• Sıfır Önbellek Zehirlenmesi, kalıcı kırmızı kota rozeti, Gemini BLOCK_NONE ve Retry-After uyumu." />
+                         Text="• Sıfır Önbellek Zehirlenmesi, 8 Oyun Türü Kütüphanesi, alt şerit HUD filtresi ve kalıcı kırmızı kota rozeti." />
             </StackPanel>
           </Border>
         </Grid>

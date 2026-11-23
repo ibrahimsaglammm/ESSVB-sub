@@ -177,6 +177,9 @@ public static class OcrPreprocessor
             return image;
         }
 
+        if (RustFastAccel.TryAddPadding(image, pad, out var fastPadded))
+            return fastPadded;
+
         int newW = image.Width + (pad * 2);
         int newH = image.Height + (pad * 2);
         var output = Frame.Blank(newW, newH);
@@ -200,10 +203,13 @@ public static class OcrPreprocessor
 
     public static byte[] ToGrayscale(Frame image, bool invert)
     {
-        var gray = new byte[image.Width * image.Height];
         if (!image.IsConsistent || image.Width == 0 || image.Height == 0)
-            return gray;
+            return new byte[image.Width * image.Height];
 
+        if (RustFastAccel.TryToGrayscale(image, invert, out var fastGray))
+            return fastGray;
+
+        var gray = new byte[image.Width * image.Height];
         for (int y = 0; y < image.Height; y++)
         {
             int row = y * image.Stride;
@@ -227,11 +233,17 @@ public static class RegionCropper
     public static Frame Crop(Frame image, CropRegion region)
     {
         var clamped = region.Clamp();
-        int left = (int)Math.Floor(image.Width * clamped.Left);
-        int top = (int)Math.Floor(image.Height * clamped.Top);
-        int right = (int)Math.Ceiling(image.Width * clamped.Right);
-        int bottom = (int)Math.Ceiling(image.Height * clamped.Bottom);
-        return image.Crop(left, top, right - left, bottom - top);
+        int left = Math.Clamp((int)Math.Floor(image.Width * clamped.Left), 0, image.Width);
+        int top = Math.Clamp((int)Math.Floor(image.Height * clamped.Top), 0, image.Height);
+        int right = Math.Clamp((int)Math.Ceiling(image.Width * clamped.Right), left, image.Width);
+        int bottom = Math.Clamp((int)Math.Ceiling(image.Height * clamped.Bottom), top, image.Height);
+        int w = right - left;
+        int h = bottom - top;
+
+        if (RustFastAccel.TryCropBgra(image, left, top, w, h, out var fastCropped))
+            return fastCropped;
+
+        return image.Crop(left, top, w, h);
     }
 
     /// <summary>

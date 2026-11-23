@@ -422,6 +422,9 @@ public static class TextMatch
 
     private static int Levenshtein(string s, string t)
     {
+        if (RustFastAccel.TryLevenshtein(s, t, out int fastDist))
+            return fastDist;
+
         int n = s.Length, m = t.Length;
         var prev = new int[m + 1];
         var curr = new int[m + 1];

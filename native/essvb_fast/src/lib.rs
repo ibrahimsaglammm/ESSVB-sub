@@ -8,7 +8,7 @@ const SIGNATURE_HEIGHT: usize = 12;
 
 #[no_mangle]
 pub extern "C" fn essvb_fast_version() -> u32 {
-    1
+    2
 }
 
 /// Normalizes dim HDR/dark frames so the top 0.5% luminance reaches near-white.
@@ -342,13 +342,205 @@ pub unsafe extern "C" fn essvb_is_mostly_black(
     i32::from(total > 0 && (non_black * 100) < total)
 }
 
+/// Crops a pre-clamped rectangle `(x, y, crop_w, crop_h)` from BGRA `src` into tightly packed `dst`.
+#[no_mangle]
+pub unsafe extern "C" fn essvb_crop_bgra(
+    src: *const u8,
+    src_w: i32,
+    src_h: i32,
+    src_stride: i32,
+    x: i32,
+    y: i32,
+    crop_w: i32,
+    crop_h: i32,
+    dst: *mut u8,
+) -> i32 {
+    if src.is_null()
+        || dst.is_null()
+        || src_w <= 0
+        || src_h <= 0
+        || src_stride < src_w * 4
+        || x < 0
+        || y < 0
+        || crop_w <= 0
+        || crop_h <= 0
+        || x + crop_w > src_w
+        || y + crop_h > src_h
+    {
+        return -1;
+    }
+
+    let sw = src_w as usize;
+    let sh = src_h as usize;
+    let ss = src_stride as usize;
+    let cx = x as usize;
+    let cy = y as usize;
+    let cw = crop_w as usize;
+    let ch = crop_h as usize;
+    let row_bytes = cw * 4;
+
+    let src_bytes = slice::from_raw_parts(src, (sh - 1) * ss + sw * 4);
+    let dst_bytes = slice::from_raw_parts_mut(dst, ch * row_bytes);
+
+    for row in 0..ch {
+        let s_off = (cy + row) * ss + cx * 4;
+        let d_off = row * row_bytes;
+        dst_bytes[d_off..d_off + row_bytes].copy_from_slice(&src_bytes[s_off..s_off + row_bytes]);
+    }
+
+    1
+}
+
+/// Converts BGRA32 frame into tightly packed 8-bit grayscale (`((r*3)+(g*6)+b)/10`), optionally inverted.
+#[no_mangle]
+pub unsafe extern "C" fn essvb_to_grayscale(
+    src: *const u8,
+    width: i32,
+    height: i32,
+    stride: i32,
+    invert: i32,
+    dst: *mut u8,
+) -> i32 {
+    if src.is_null() || dst.is_null() || width <= 0 || height <= 0 || stride < width * 4 {
+        return -1;
+    }
+
+    let w = width as usize;
+    let h = height as usize;
+    let s = stride as usize;
+    let inv = invert != 0;
+    let src_bytes = slice::from_raw_parts(src, (h - 1) * s + w * 4);
+    let dst_bytes = slice::from_raw_parts_mut(dst, w * h);
+
+    for y in 0..h {
+        let s_row = &src_bytes[y * s..y * s + w * 4];
+        let d_row = &mut dst_bytes[y * w..(y + 1) * w];
+        for (px, out) in s_row.chunks_exact(4).zip(d_row.iter_mut()) {
+            let luma = ((px[2] as u32 * 3) + (px[1] as u32 * 6) + (px[0] as u32)) / 10;
+            *out = if inv { (255 - luma) as u8 } else { luma as u8 };
+        }
+    }
+
+    1
+}
+
+/// Surrounds BGRA32 frame with an opaque black border of `pad` pixels on each side.
+#[no_mangle]
+pub unsafe extern "C" fn essvb_add_padding(
+    src: *const u8,
+    width: i32,
+    height: i32,
+    stride: i32,
+    pad: i32,
+    dst: *mut u8,
+) -> i32 {
+    if src.is_null()
+        || dst.is_null()
+        || width <= 0
+        || height <= 0
+        || stride < width * 4
+        || pad <= 0
+        || width + (pad * 2) > 4096
+        || height + (pad * 2) > 4096
+    {
+        return -1;
+    }
+
+    let w = width as usize;
+    let h = height as usize;
+    let s = stride as usize;
+    let p = pad as usize;
+    let new_w = w + (p * 2);
+    let new_h = h + (p * 2);
+    let dst_stride = new_w * 4;
+    let row_bytes = w * 4;
+
+    let src_bytes = slice::from_raw_parts(src, (h - 1) * s + w * 4);
+    let dst_bytes = slice::from_raw_parts_mut(dst, new_h * dst_stride);
+
+    for px in dst_bytes.chunks_exact_mut(4) {
+        px[0] = 0;
+        px[1] = 0;
+        px[2] = 0;
+        px[3] = 255;
+    }
+
+    for y in 0..h {
+        let s_off = y * s;
+        let d_off = (y + p) * dst_stride + (p * 4);
+        dst_bytes[d_off..d_off + row_bytes].copy_from_slice(&src_bytes[s_off..s_off + row_bytes]);
+    }
+
+    1
+}
+
+fn levenshtein_slice_u16(a: &[u16], b: &[u16]) -> i32 {
+    let m = b.len();
+    if m <= 256 {
+        let mut row = [0i32; 257];
+        for (j, slot) in row[..=m].iter_mut().enumerate() {
+            *slot = j as i32;
+        }
+        for &ac in a {
+            let mut prev_diag = row[0];
+            row[0] += 1;
+            for (j, &bc) in b.iter().enumerate() {
+                let old_top = row[j + 1];
+                let cost = i32::from(ac != bc);
+                row[j + 1] = (row[j] + 1).min(old_top + 1).min(prev_diag + cost);
+                prev_diag = old_top;
+            }
+        }
+        row[m]
+    } else {
+        let mut row: Vec<i32> = (0..=m as i32).collect();
+        for &ac in a {
+            let mut prev_diag = row[0];
+            row[0] += 1;
+            for (j, &bc) in b.iter().enumerate() {
+                let old_top = row[j + 1];
+                let cost = i32::from(ac != bc);
+                row[j + 1] = (row[j] + 1).min(old_top + 1).min(prev_diag + cost);
+                prev_diag = old_top;
+            }
+        }
+        row[m]
+    }
+}
+
+/// Computes exact Levenshtein edit distance between two UTF-16 code-unit slices (`char*`).
+#[no_mangle]
+pub unsafe extern "C" fn essvb_levenshtein_u16(
+    a: *const u16,
+    a_len: i32,
+    b: *const u16,
+    b_len: i32,
+) -> i32 {
+    if a_len < 0 || b_len < 0 {
+        return -1;
+    }
+    if a_len == 0 {
+        return b_len;
+    }
+    if b_len == 0 {
+        return a_len;
+    }
+    if a.is_null() || b.is_null() {
+        return -1;
+    }
+
+    let sa = slice::from_raw_parts(a, a_len as usize);
+    let sb = slice::from_raw_parts(b, b_len as usize);
+    levenshtein_slice_u16(sa, sb)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_version_and_black_check() {
-        assert_eq!(essvb_fast_version(), 1);
+        assert_eq!(essvb_fast_version(), 2);
         let black = vec![0u8; 64 * 64 * 4];
         unsafe {
             assert_eq!(essvb_is_mostly_black(black.as_ptr(), 64, 64, 64 * 4), 1);
@@ -401,6 +593,48 @@ mod tests {
             assert_eq!(essvb_compute_signature(src.as_ptr(), w, h, stride, sig_b.as_mut_ptr()), 1);
             let diff = essvb_difference_ratio(sig_a.as_ptr(), sig_b.as_ptr(), 32 * 12, 0, 32, 0, 12);
             assert!(diff > 0.0);
+        }
+    }
+
+    #[test]
+    fn test_crop_grayscale_padding_and_levenshtein() {
+        // 4x4 BGRA source with distinct pixel values
+        let w = 4i32;
+        let h = 4i32;
+        let stride = w * 4;
+        let mut src = vec![0u8; (w * h * 4) as usize];
+        // Pixel at (2, 1): B=10, G=100, R=200, A=255 -> luma = (600+600+10)/10 = 121
+        let idx = (1 * stride + 2 * 4) as usize;
+        src[idx] = 10;
+        src[idx + 1] = 100;
+        src[idx + 2] = 200;
+        src[idx + 3] = 255;
+
+        let mut cropped = vec![0u8; 2 * 2 * 4];
+        unsafe {
+            assert_eq!(essvb_crop_bgra(src.as_ptr(), w, h, stride, 2, 1, 2, 2, cropped.as_mut_ptr()), 1);
+            assert_eq!(&cropped[0..4], &[10, 100, 200, 255]);
+
+            let mut gray = vec![0u8; (w * h) as usize];
+            assert_eq!(essvb_to_grayscale(src.as_ptr(), w, h, stride, 0, gray.as_mut_ptr()), 1);
+            assert_eq!(gray[1 * (w as usize) + 2], 121);
+
+            let mut gray_inv = vec![0u8; (w * h) as usize];
+            assert_eq!(essvb_to_grayscale(src.as_ptr(), w, h, stride, 1, gray_inv.as_mut_ptr()), 1);
+            assert_eq!(gray_inv[1 * (w as usize) + 2], 134);
+
+            let mut padded = vec![0u8; 6 * 6 * 4];
+            assert_eq!(essvb_add_padding(src.as_ptr(), w, h, stride, 1, padded.as_mut_ptr()), 1);
+            assert_eq!(&padded[0..4], &[0, 0, 0, 255]);
+            let p_idx = (2 * 6 * 4) + (3 * 4);
+            assert_eq!(&padded[p_idx..p_idx + 4], &[10, 100, 200, 255]);
+
+            let s1: Vec<u16> = "çeviri".encode_utf16().collect();
+            let s2: Vec<u16> = "çevir".encode_utf16().collect();
+            assert_eq!(
+                essvb_levenshtein_u16(s1.as_ptr(), s1.len() as i32, s2.as_ptr(), s2.len() as i32),
+                1
+            );
         }
     }
 }

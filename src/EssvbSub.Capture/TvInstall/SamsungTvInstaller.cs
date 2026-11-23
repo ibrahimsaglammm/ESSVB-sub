@@ -12,6 +12,7 @@ using EssvbSub.Core.Models;
 using EssvbSub.Core.Storage;
 using TizenSdb;
 using TizenSdb.SdbClient;
+using TizenSdb.SigningManager;
 
 namespace EssvbSub.Capture.TvInstall;
 
@@ -22,6 +23,32 @@ public sealed record SamsungTvDeviceInfo(
     string? DeveloperMode,
     string? DeveloperIp,
     bool SdbReachable = false);
+
+public sealed record SamsungTvStatusSnapshot(
+    string Host,
+    bool RestReachable,
+    bool SdbReachable,
+    string? TvName,
+    string? ModelName,
+    string? PlatformVersion,
+    string? DeveloperMode,
+    string? DeveloperIp,
+    string? LocalIpTowardsTv,
+    bool IsAppInstalled,
+    string? InstalledVersion,
+    string Summary);
+
+public sealed record SamsungTvInstallReport(
+    bool Success,
+    bool InstalledOnTv,
+    string? InstalledVersion,
+    string? TvName,
+    string? ModelName,
+    string? PlatformVersion,
+    bool Launched,
+    string LaunchReply,
+    string Summary,
+    string? RawInstallOutput = null);
 
 public sealed record SamsungAccountToken(string AccessToken, string UserId, string Email);
 
@@ -34,8 +61,8 @@ public sealed class SamsungTvInstaller
 {
     public const int SdbPort = 26101;
     public const int TvApiPort = 8001;
-    public const string AppId = "EssvbSubT.EssvbSub";
-    public const string PackageId = "EssvbSubT";
+    public const string AppId = "EssvbSubTv.EssvbSub";
+    public const string PackageId = "EssvbSubTv";
 
     private const string AuthorCertUrl = "https://svdca.samsungqbe.com/apis/v3/authors";
     private const string DistProfileUrl = "https://svdca.samsungqbe.com/apis/v1/distributors";
@@ -48,6 +75,91 @@ public sealed class SamsungTvInstaller
     }) { Timeout = TimeSpan.FromSeconds(3) };
 
     private static readonly HttpClient CloudHttp = new() { Timeout = TimeSpan.FromSeconds(15) };
+    private static readonly SemaphoreSlim ConsoleCaptureGate = new(1, 1);
+
+    private static readonly string[] OrderedEmbeddedCaNames =
+    [
+        "EssvbCa.vd_tizen_dev_author_ca.pem",
+        "EssvbCa.vd_tizen_dev_public2.pem",
+        "EssvbCa.author_ca.pem",
+        "EssvbCa.public2.pem"
+    ];
+
+    public static string? SourceAddressTowards(string host)
+    {
+        if (!IPAddress.TryParse(host, out var ip))
+            return null;
+        try
+        {
+            using var socket = new Socket(ip.AddressFamily, SocketType.Dgram, ProtocolType.Udp);
+            socket.Connect(new IPEndPoint(ip, SdbPort));
+            return (socket.LocalEndPoint as IPEndPoint)?.Address.ToString();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public static async Task<SamsungTvStatusSnapshot> CheckTvStatusAsync(string host, CancellationToken ct = default)
+    {
+        if (!IPAddress.TryParse(host, out var ip))
+        {
+            return new SamsungTvStatusSnapshot(
+                host, false, false, null, null, null, null, null, null, false, null,
+                $"Geçersiz TV IP adresi: {host}");
+        }
+
+        var tvInfo = await ProbeTvAsync(host, ct).ConfigureAwait(false);
+        string? localIp = SourceAddressTowards(host);
+        bool restOk = tvInfo is not null;
+        string? devMode = tvInfo?.DeveloperMode;
+        string? devIp = tvInfo?.DeveloperIp == "0.0.0.0" ? null : tvInfo?.DeveloperIp;
+
+        try
+        {
+            await using var device = new SdbTcpDevice(ip, SdbPort);
+            using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            connectCts.CancelAfter(TimeSpan.FromSeconds(4));
+            await device.ConnectAsync(connectCts.Token).ConfigureAwait(false);
+
+            var caps = await device.CapabilityAsync(ct).ConfigureAwait(false);
+            string detectedPlatform = caps.GetValueOrDefault("platform_version", "").Trim();
+            string platform = TizenPackageAdapter.ResolvePlatformVersion(detectedPlatform, SamsungTvModel.AutoDetect, tvInfo?.ModelName);
+            string listing = await device.ShellCommandAsync("0 vd_applist", ct).ConfigureAwait(false);
+            var (installed, version, _) = SamsungInstallDiagnostics.ParseInstalledApp(listing, AppId, PackageId);
+
+            string modelLabel = tvInfo?.ModelName ?? tvInfo?.Name ?? "Samsung Tizen TV";
+            string verLabel = string.IsNullOrWhiteSpace(version) ? "kurulu" : $"v{version}";
+            string summary = installed
+                ? $"TV Bağlı ({modelLabel}, Tizen {platform}) • ESSVB-sub TV'de KURULU ({verLabel})."
+                : $"TV Bağlı ({modelLabel}, Tizen {platform}) • Developer Mode/SDB açık, ancak ESSVB-sub TV'de KURULU DEĞİL.";
+
+            return new SamsungTvStatusSnapshot(
+                host, restOk, true, tvInfo?.Name, tvInfo?.ModelName, platform, devMode, devIp, localIp,
+                installed, version, summary);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            string summary;
+            if (!restOk)
+                summary = $"TV ({host}) ağda yanıt vermiyor. TV'nin açık ve PC ile aynı ağda olduğundan emin olun ({ex.Message}).";
+            else if (devMode != "1")
+                summary = $"TV bulundu ({tvInfo?.ModelName ?? "Samsung TV"}) ancak Developer Mode kapalı. Apps > 1 2 3 4 5 ile açıp PC IP ({localIp ?? "?"}) girin ve TV'yi yeniden başlatın.";
+            else if (!string.IsNullOrWhiteSpace(devIp) && !string.IsNullOrWhiteSpace(localIp) && !devIp.Equals(localIp, StringComparison.Ordinal))
+                summary = $"Developer Mode açık ancak TV'deki Host PC IP ({devIp}) bu PC'nin adresi ({localIp}) ile uyuşmuyor! TV Apps > 1 2 3 4 5 içinde Host PC IP'yi {localIp} yapıp TV'yi kapatıp açın.";
+            else
+                summary = $"TV 26101 (SDB) bağlantısını kabul etmedi: {ex.Message} (PC IP: {localIp ?? "?"}, TV Host IP: {devIp ?? "?"}).";
+
+            return new SamsungTvStatusSnapshot(
+                host, restOk, false, tvInfo?.Name, tvInfo?.ModelName, null, devMode, devIp, localIp,
+                false, null, summary);
+        }
+    }
 
     public static async Task<SamsungTvDeviceInfo?> ProbeTvAsync(string host, CancellationToken ct = default)
     {
@@ -237,7 +349,7 @@ public sealed class SamsungTvInstaller
         }
     }
 
-    public static async Task InstallAndLaunchAsync(
+    public static async Task<SamsungTvInstallReport> InstallAndLaunchAsync(
         string host,
         string tvTizenFolder,
         string profilesDirectory,
@@ -252,13 +364,30 @@ public sealed class SamsungTvInstaller
         if (!IPAddress.TryParse(host, out var ip))
             throw new ArgumentException($"Geçersiz Samsung TV IP adresi: {host}", nameof(host));
 
+        string? localIp = SourceAddressTowards(host);
         var tvInfo = await ProbeTvAsync(host, ct).ConfigureAwait(false);
         if (tvInfo is not null)
-            log?.Invoke($"TV Algılandı: {tvInfo.Name} ({tvInfo.ModelName ?? "Model belirtilmedi"})");
+        {
+            string? devIp = tvInfo.DeveloperIp == "0.0.0.0" ? null : tvInfo.DeveloperIp;
+            log?.Invoke($"TV Algılandı: {tvInfo.Name} ({tvInfo.ModelName ?? "Model belirtilmedi"}), DevMode={tvInfo.DeveloperMode ?? "?"}, HostIP={devIp ?? "?"} (Bu PC={localIp ?? "?"})");
+            if (devIp is not null && localIp is not null && !devIp.Equals(localIp, StringComparison.Ordinal))
+                log?.Invoke($"UYARI: TV Developer Mode Host PC IP ({devIp}) bu bilgisayarla ({localIp}) eşleşmiyor!");
+        }
 
-        log?.Invoke($"Samsung TV SDB bağlantısı kuruluyor: {host}:{SdbPort}...");
+        log?.Invoke($"[1/5] Samsung TV SDB bağlantısı kuruluyor: {host}:{SdbPort}...");
         await using var device = new SdbTcpDevice(ip, SdbPort);
-        await device.ConnectAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await device.ConnectAsync(ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            string devIp = tvInfo?.DeveloperIp ?? "?";
+            string devMode = tvInfo?.DeveloperMode ?? "?";
+            throw new InvalidOperationException(
+                $"TV SDB (port {SdbPort}) bağlantısı kurulamadı: {ex.Message} (DevMode={devMode}, TV Host IP={devIp}, Bu PC={localIp ?? "?"}).",
+                ex);
+        }
 
         var caps = await device.CapabilityAsync(ct).ConfigureAwait(false);
         string detectedPlatform = caps.GetValueOrDefault("platform_version", "").Trim();
@@ -266,9 +395,7 @@ public sealed class SamsungTvInstaller
         string toolPath = caps.GetValueOrDefault("sdk_toolpath")?.Trim() is { Length: > 0 } tp ? tp : "/opt/usr/apps/tmp";
         log?.Invoke($"TV Tizen Sürümü: {platform}{(detectedPlatform.Length == 0 ? " (model profilinden)" : "")}, toolPath={toolPath}");
 
-        string duid = (await device.ShellCommandAsync("0 getduid", ct).ConfigureAwait(false)).Split('\n')[0].Trim();
-        if (string.IsNullOrWhiteSpace(duid))
-            throw new InvalidOperationException("TV kimliği (DUID) okunamadı.");
+        string duid = await ReadDuidWithRetryAsync(device, ct).ConfigureAwait(false);
 
         string certDir = Path.Combine(profilesDirectory, SanitizeFileName(duid));
         string authorP12 = Path.Combine(certDir, "author.p12");
@@ -288,48 +415,155 @@ public sealed class SamsungTvInstaller
             }
         }
 
-        if (!File.Exists(authorP12) || !File.Exists(distP12) || string.IsNullOrWhiteSpace(password))
+        bool certsUsable = File.Exists(authorP12) && File.Exists(distP12) && !string.IsNullOrWhiteSpace(password);
+        if (certsUsable)
+        {
+            try
+            {
+                if (RepairPkcs12ChainIfNeeded(authorP12, password!))
+                    log?.Invoke("Kayıtlı author.p12 sertifika zinciri onarıldı.");
+                if (RepairPkcs12ChainIfNeeded(distP12, password!))
+                    log?.Invoke("Kayıtlı distributor.p12 sertifika zinciri onarıldı.");
+            }
+            catch (Exception repairEx)
+            {
+                log?.Invoke($"Sertifika zinciri onarım uyarısı: {repairEx.Message}");
+            }
+
+            try
+            {
+                certsUsable = AreCertificatesValid(authorP12, distP12, password!);
+            }
+            catch (Exception valEx)
+            {
+                log?.Invoke($"Kayıtlı sertifika okunamadı ({valEx.Message}); yeni sertifika alınacak.");
+                certsUsable = false;
+            }
+        }
+
+        if (!certsUsable)
         {
             if (signInHandler is null)
-                throw new InvalidOperationException("Samsung geliştirici sertifikası yok ve oturum açma işleyicisi verilmedi.");
+                throw new InvalidOperationException("Geçerli Samsung geliştirici sertifikası yok ve oturum açma işleyicisi verilmedi.");
 
-            log?.Invoke("Samsung hesabıyla giriş bekleniyor...");
+            log?.Invoke("[2/5] Samsung hesabıyla giriş bekleniyor (tarayıcı açılıyor)...");
             var account = await signInHandler(url =>
             {
                 try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true }); }
                 catch { }
             }).ConfigureAwait(false);
 
-            log?.Invoke("Samsung TV sertifikası üretiliyor...");
+            log?.Invoke("[2/5] Samsung TV sertifikaları üretiliyor...");
             password = await EnrollCertificatesAsync(duid, account, certDir, vaultKey, ct).ConfigureAwait(false);
+        }
+        else
+        {
+            log?.Invoke("[2/5] Geçerli Samsung geliştirici sertifikaları doğrulandı.");
         }
 
         // MU9000 (Tizen 3.0) and Tizen 2.4-4.0 require device-profile.xml to be pushed before install
         if (TizenPackageAdapter.RequiresDeviceProfile(platform) && File.Exists(profileXml))
         {
-            log?.Invoke($"Tizen {platform}: device-profile.xml TV'ye gönderiliyor...");
-            await using var fs = File.OpenRead(profileXml);
-            await device.PushAsync(fs, $"{toolPath}/device-profile.xml", ct: ct).ConfigureAwait(false);
+            string primaryTarget = TizenPackageAdapter.RequiresLegacyAdaptation(platform)
+                ? $"/home/developer/device-profile.xml"
+                : $"{toolPath}/device-profile.xml";
+            string fallbackTarget = $"{toolPath}/device-profile.xml";
+            foreach (string target in primaryTarget == fallbackTarget ? [primaryTarget] : new[] { primaryTarget, fallbackTarget })
+            {
+                try
+                {
+                    await using var fs = File.OpenRead(profileXml);
+                    await device.PushAsync(fs, target, ct: ct).ConfigureAwait(false);
+                    log?.Invoke($"[3/5] Tizen {platform}: device-profile.xml gönderildi ({target}).");
+                    break;
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    log?.Invoke($"device-profile.xml gönderilemedi ({target}): {ex.Message}");
+                }
+            }
         }
 
-        string stagedWgt = Path.Combine(Path.GetTempPath(), $"essvb-sub-{Guid.NewGuid():N}.wgt");
+        var tempFiles = new List<string>();
+        string rawOutput = "";
         try
         {
-            TizenPackageAdapter.PrepareAndSignWgtForDevice(
-                tvTizenFolder, stagedWgt, platform, authorP12, distP12, password);
+            string primaryWgt = Path.Combine(Path.GetTempPath(), $"essvb-sub-{Guid.NewGuid():N}.wgt");
+            tempFiles.Add(primaryWgt);
+            TizenPackageAdapter.PrepareUnsignedWgtForDevice(tvTizenFolder, primaryWgt, platform, lean: false);
 
-            log?.Invoke($"ESSVB-sub TV paketi imzalandı ({TizenPackageAdapter.GetRecommendedDigest(platform)}) ve kuruluyor...");
-            await new TizenInstaller(stagedWgt, device, toolPath).InstallApp().ConfigureAwait(false);
+            log?.Invoke($"[4/5] Paket Tizen {platform} için imzalanıyor ve TV'ye yükleniyor...");
+            await TizenWgtSigner.ReSignWgtWithCertsInPlace(primaryWgt, authorP12, distP12, password!).ConfigureAwait(false);
+
+            rawOutput = await RunVdInstallCapturedAsync(primaryWgt, device, toolPath).ConfigureAwait(false);
+            var problem = SamsungInstallDiagnostics.Classify(rawOutput);
+
+            if (problem != SamsungInstallProblem.None)
+            {
+                log?.Invoke($"İlk kurulum denemesi başarısız ({problem}): {SamsungInstallDiagnostics.ExtractErrorSummary(rawOutput)}");
+
+                if (SamsungInstallDiagnostics.RemovingOldCopyMayHelp(problem))
+                {
+                    log?.Invoke("TV'deki olası eski paket temizlenip kurulum yeniden deneniyor...");
+                    await UninstallExistingAsync(device, log, ct).ConfigureAwait(false);
+                    rawOutput = await RunVdInstallCapturedAsync(primaryWgt, device, toolPath).ConfigureAwait(false);
+                    problem = SamsungInstallDiagnostics.Classify(rawOutput);
+                }
+
+                if (problem is SamsungInstallProblem.Other or SamsungInstallProblem.Incompatible)
+                {
+                    string leanWgt = Path.Combine(Path.GetTempPath(), $"essvb-sub-lean-{Guid.NewGuid():N}.wgt");
+                    tempFiles.Add(leanWgt);
+                    TizenPackageAdapter.PrepareAndSignWgtForDevice(
+                        tvTizenFolder, leanWgt, platform, authorP12, distP12, password!, lean: true);
+
+                    log?.Invoke("Yalın (SHA-256) uyumluluk paketiyle yeniden deneniyor...");
+                    rawOutput = await RunVdInstallCapturedAsync(leanWgt, device, toolPath).ConfigureAwait(false);
+                    problem = SamsungInstallDiagnostics.Classify(rawOutput);
+                }
+
+                if (problem == SamsungInstallProblem.CertificateRejected)
+                    DiscardCertificatesDirectory(certDir);
+
+                if (problem != SamsungInstallProblem.None)
+                    throw new InvalidOperationException(SamsungInstallDiagnostics.BuildTurkishErrorSummary(problem, rawOutput));
+            }
         }
         finally
         {
-            try { if (File.Exists(stagedWgt)) File.Delete(stagedWgt); } catch { }
+            foreach (string tmp in tempFiles)
+                DeleteTempFileWithRetry(tmp);
         }
 
-        log?.Invoke("TV uygulaması başlatılıyor...");
-        string cmd = BuildSafeLaunchCommand(serverUrl, serverToken, hdmiPort);
-        string launchReply = await device.ShellCommandAsync(cmd, ct).ConfigureAwait(false);
-        log?.Invoke($"Başlatma yanıtı: {launchReply.Trim()}");
+        // Verify via vd_applist that the widget actually exists on the TV
+        string postList = await device.ShellCommandAsync("0 vd_applist", ct).ConfigureAwait(false);
+        var (installed, installedVer, _) = SamsungInstallDiagnostics.ParseInstalledApp(postList, AppId, PackageId);
+        if (!installed)
+        {
+            throw new InvalidOperationException(
+                $"TV kurulumu görünürde bitti ancak uygulama TV listesinde ({AppId}) doğrulanamadı. TV çıktısı: {SamsungInstallDiagnostics.ExtractErrorSummary(rawOutput)}");
+        }
+
+        log?.Invoke($"[5/5] Doğrulandı: ESSVB-sub TV'de kurulu (v{installedVer ?? "?"}). Başlatılıyor...");
+        var (launched, launchReply) = await LaunchWidgetWithFallbackAsync(
+            device, ip, platform, serverUrl, serverToken, hdmiPort, log, ct).ConfigureAwait(false);
+
+        string tvModelLabel = tvInfo?.ModelName ?? tvInfo?.Name ?? "Samsung TV";
+        string summary = launched
+            ? $"✓ Kuruldu ve TV'de açıldı ({tvModelLabel}, Tizen {platform}, v{installedVer ?? "?"})."
+            : $"✓ TV'ye kuruldu ({tvModelLabel}, Tizen {platform}, v{installedVer ?? "?"}), ancak başlatma yanıtı bekleniyor: {launchReply}";
+
+        return new SamsungTvInstallReport(
+            Success: true,
+            InstalledOnTv: true,
+            InstalledVersion: installedVer,
+            TvName: tvInfo?.Name,
+            ModelName: tvInfo?.ModelName,
+            PlatformVersion: platform,
+            Launched: launched,
+            LaunchReply: launchReply,
+            Summary: summary,
+            RawInstallOutput: rawOutput);
     }
 
     public static async Task<bool> LaunchAsync(
@@ -339,20 +573,97 @@ public sealed class SamsungTvInstaller
         int hdmiPort = 1,
         CancellationToken ct = default)
     {
-        if (!IPAddress.TryParse(host, out var ip)) return false;
+        var (launched, _) = await LaunchWithDetailAsync(host, serverUrl, serverToken, hdmiPort, ct).ConfigureAwait(false);
+        return launched;
+    }
+
+    public static async Task<(bool Launched, string Message)> LaunchWithDetailAsync(
+        string host,
+        string? serverUrl = null,
+        string? serverToken = null,
+        int hdmiPort = 1,
+        CancellationToken ct = default)
+    {
+        if (!IPAddress.TryParse(host, out var ip))
+            return (false, $"Geçersiz TV IP adresi: {host}");
+
         try
         {
             await using var device = new SdbTcpDevice(ip, SdbPort);
-            await device.ConnectAsync(ct).ConfigureAwait(false);
-            string cmd = BuildSafeLaunchCommand(serverUrl, serverToken, hdmiPort);
-            string reply = await device.ShellCommandAsync(cmd, ct).ConfigureAwait(false);
-            return reply.Contains("launched", StringComparison.OrdinalIgnoreCase);
+            using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            connectCts.CancelAfter(TimeSpan.FromSeconds(4));
+            await device.ConnectAsync(connectCts.Token).ConfigureAwait(false);
+
+            var caps = await device.CapabilityAsync(ct).ConfigureAwait(false);
+            string platform = caps.GetValueOrDefault("platform_version", "").Trim();
+            string listing = await device.ShellCommandAsync("0 vd_applist", ct).ConfigureAwait(false);
+            var (installed, ver, _) = SamsungInstallDiagnostics.ParseInstalledApp(listing, AppId, PackageId);
+            if (!installed)
+            {
+                return (false, "ESSVB-sub henüz TV'ye kurulmamış! Önce 'TV'ye Otomatik Kur & Aç' butonuna basın.");
+            }
+
+            var (launched, reply) = await LaunchWidgetWithFallbackAsync(
+                device, ip, platform, serverUrl, serverToken, hdmiPort, log: null, ct).ConfigureAwait(false);
+
+            return launched
+                ? (true, $"ESSVB-sub (v{ver ?? "?"}) TV'de başlatıldı (HDMI {hdmiPort}). TV ekranında 6 haneli kod görünürse onaylayın.")
+                : (false, $"TV uygulamayı başlatamadı (Kurulu: v{ver ?? "?"}). TV yanıtı: {reply}");
         }
-        catch
+        catch (Exception ex)
         {
-            return false;
+            return (false, $"TV'ye bağlanılamadı ({ex.Message}). Developer Mode > Host PC IP ayarını ve TV'nin açık olduğunu kontrol edin.");
         }
     }
+
+    private static async Task<(bool Launched, string Reply)> LaunchWidgetWithFallbackAsync(
+        SdbTcpDevice existingDevice,
+        IPAddress ip,
+        string platformVersion,
+        string? serverUrl,
+        string? serverToken,
+        int hdmiPort,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        bool supportsPayload = !string.IsNullOrWhiteSpace(platformVersion) &&
+                               TizenPackageAdapter.IsVersionNewer(platformVersion, "4.9");
+        string plainCmd = $"0 was_execute {AppId}";
+        string primaryCmd = supportsPayload ? BuildSafeLaunchCommand(serverUrl, serverToken, hdmiPort) : plainCmd;
+
+        try
+        {
+            string reply = (await existingDevice.ShellCommandAsync(primaryCmd, ct).ConfigureAwait(false)).Trim();
+            if (IsLaunchedReply(reply))
+                return (true, reply);
+
+            if (primaryCmd == plainCmd)
+                return (false, reply);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            log?.Invoke($"Başlatma yeniden deneniyor ({ex.Message})...");
+        }
+
+        try
+        {
+            await using var fresh = new SdbTcpDevice(ip, SdbPort);
+            using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            connectCts.CancelAfter(TimeSpan.FromSeconds(4));
+            await fresh.ConnectAsync(connectCts.Token).ConfigureAwait(false);
+
+            string reply = (await fresh.ShellCommandAsync(plainCmd, ct).ConfigureAwait(false)).Trim();
+            return (IsLaunchedReply(reply), reply);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return (false, ex.Message);
+        }
+    }
+
+    private static bool IsLaunchedReply(string reply) =>
+        reply.Contains("launched", StringComparison.OrdinalIgnoreCase) &&
+        !reply.Contains("fail", StringComparison.OrdinalIgnoreCase);
 
     private static async Task<string> EnrollCertificatesAsync(
         string duid,
@@ -436,28 +747,181 @@ public sealed class SamsungTvInstaller
 
     private static byte[] ExportPkcs12(X509Certificate2 leaf, RSA key, string password)
     {
-        using var withKey = leaf.CopyWithPrivateKey(key);
-        var chain = new X509Certificate2Collection { withKey };
-        foreach (var ca in LoadEmbeddedCaCerts())
+        var embeddedCas = LoadEmbeddedCaCerts().ToList();
+        try
         {
-            if (ca.Subject == leaf.Issuer && ca.Subject != ca.Issuer)
-                chain.Add(ca);
-            else
+            var bestCa = TizenPackageAdapter.PickBestIntermediateCa(leaf, embeddedCas);
+            using var withKey = leaf.CopyWithPrivateKey(key);
+            var chain = new X509Certificate2Collection { withKey };
+            if (bestCa is not null)
+                chain.Add(bestCa);
+            var pbe = new PbeParameters(PbeEncryptionAlgorithm.TripleDes3KeyPkcs12, HashAlgorithmName.SHA1, 2048);
+            return chain.ExportPkcs12(pbe, password);
+        }
+        finally
+        {
+            foreach (var ca in embeddedCas)
                 ca.Dispose();
         }
-        var pbe = new PbeParameters(PbeEncryptionAlgorithm.TripleDes3KeyPkcs12, HashAlgorithmName.SHA1, 2048);
-        return chain.ExportPkcs12(pbe, password);
+    }
+
+    internal static bool RepairPkcs12ChainIfNeeded(string p12Path, string password)
+    {
+        if (!File.Exists(p12Path))
+            return false;
+
+        var flags = (OperatingSystem.IsMacOS() ? X509KeyStorageFlags.DefaultKeySet : X509KeyStorageFlags.EphemeralKeySet)
+                    | X509KeyStorageFlags.Exportable;
+        var existing = X509CertificateLoader.LoadPkcs12CollectionFromFile(p12Path, password, flags);
+        var embedded = LoadEmbeddedCaCerts().ToList();
+        try
+        {
+            var leaf = existing.FirstOrDefault(c => c.HasPrivateKey);
+            if (leaf is null)
+                return false;
+
+            var existingIntermediates = existing.Where(c => c.Thumbprint != leaf.Thumbprint && c.Subject != c.Issuer).ToList();
+            var pool = existingIntermediates.Concat(embedded).ToList();
+            var bestCa = TizenPackageAdapter.PickBestIntermediateCa(leaf, pool);
+
+            if (existing.Count == 2 && existingIntermediates.Count == 1 &&
+                bestCa is not null && existingIntermediates[0].Thumbprint == bestCa.Thumbprint)
+            {
+                return false;
+            }
+
+            var repaired = new X509Certificate2Collection { leaf };
+            if (bestCa is not null)
+                repaired.Add(bestCa);
+
+            var pbe = new PbeParameters(PbeEncryptionAlgorithm.TripleDes3KeyPkcs12, HashAlgorithmName.SHA1, 2048);
+            byte[] exported = repaired.ExportPkcs12(pbe, password);
+            string tmp = p12Path + ".tmp";
+            File.WriteAllBytes(tmp, exported);
+            File.Move(tmp, p12Path, overwrite: true);
+            return true;
+        }
+        finally
+        {
+            foreach (var c in existing) c.Dispose();
+            foreach (var c in embedded) c.Dispose();
+        }
+    }
+
+    private static bool AreCertificatesValid(string authorP12, string distP12, string password)
+    {
+        var flags = OperatingSystem.IsMacOS() ? X509KeyStorageFlags.DefaultKeySet : X509KeyStorageFlags.EphemeralKeySet;
+        DateTime now = DateTime.UtcNow;
+        foreach (string path in new[] { authorP12, distP12 })
+        {
+            var col = X509CertificateLoader.LoadPkcs12CollectionFromFile(path, password, flags);
+            try
+            {
+                var leaf = col.FirstOrDefault(c => c.HasPrivateKey);
+                if (leaf is null || leaf.NotAfter.ToUniversalTime() <= now.AddHours(6) || leaf.NotBefore.ToUniversalTime() > now.AddDays(1))
+                    return false;
+            }
+            finally
+            {
+                foreach (var c in col) c.Dispose();
+            }
+        }
+        return true;
     }
 
     private static IEnumerable<X509Certificate2> LoadEmbeddedCaCerts()
     {
         var asm = typeof(SamsungTvInstaller).Assembly;
-        foreach (var name in asm.GetManifestResourceNames().Where(n => n.StartsWith("EssvbCa.", StringComparison.Ordinal)))
+        foreach (string name in OrderedEmbeddedCaNames)
         {
             using var s = asm.GetManifestResourceStream(name);
             if (s is null) continue;
             using var reader = new StreamReader(s);
             yield return X509Certificate2.CreateFromPem(reader.ReadToEnd());
+        }
+    }
+
+    private static async Task<string> ReadDuidWithRetryAsync(SdbTcpDevice device, CancellationToken ct)
+    {
+        string last = "";
+        for (int attempt = 0; attempt < 3; attempt++)
+        {
+            last = await device.ShellCommandAsync("0 getduid", ct).ConfigureAwait(false);
+            string candidate = last.Split('\n')[0].Trim();
+            if (!string.IsNullOrWhiteSpace(candidate))
+                return candidate;
+            await Task.Delay(400, ct).ConfigureAwait(false);
+        }
+        throw new InvalidOperationException($"TV kimliği (DUID) okunamadı (TV yanıtı: '{last.Trim()}').");
+    }
+
+    private static async Task<string> RunVdInstallCapturedAsync(string wgtPath, SdbTcpDevice device, string toolPath)
+    {
+        await ConsoleCaptureGate.WaitAsync().ConfigureAwait(false);
+        var origOut = Console.Out;
+        var writer = new StringWriter();
+        Console.SetOut(writer);
+        try
+        {
+            await new TizenInstaller(wgtPath, device, toolPath).InstallApp().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            writer.WriteLine($"install failed: {ex.GetType().Name}: {ex.Message}");
+        }
+        finally
+        {
+            Console.SetOut(origOut);
+            ConsoleCaptureGate.Release();
+        }
+        return writer.ToString();
+    }
+
+    private static async Task UninstallExistingAsync(SdbTcpDevice device, Action<string>? log, CancellationToken ct)
+    {
+        foreach (string id in new[] { PackageId, AppId, "EssvbSubT", "EssvbSubT.EssvbSub" })
+        {
+            try
+            {
+                string reply = (await device.ShellCommandAsync($"0 vd_appuninstall {id}", ct).ConfigureAwait(false)).Trim();
+                log?.Invoke($"Kaldırma ({id}): {reply}");
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                log?.Invoke($"Kaldırma ({id}) atlandı: {ex.Message}");
+            }
+        }
+    }
+
+    private static void DiscardCertificatesDirectory(string certDir)
+    {
+        try
+        {
+            if (!Directory.Exists(certDir)) return;
+            string backup = $"{certDir}.rejected-{DateTime.UtcNow:yyyyMMddHHmmss}";
+            Directory.Move(certDir, backup);
+        }
+        catch
+        {
+            try { Directory.Delete(certDir, recursive: true); } catch { }
+        }
+    }
+
+    private static void DeleteTempFileWithRetry(string path)
+    {
+        for (int attempt = 0; attempt < 3; attempt++)
+        {
+            try
+            {
+                if (File.Exists(path))
+                    File.Delete(path);
+                return;
+            }
+            catch
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+            }
         }
     }
 

@@ -80,9 +80,23 @@ public static partial class TizenPackageAdapter
     }
 
     public static TizenSignatureDigest GetRecommendedDigest(string tizenPlatform) =>
-        IsVersionNewer(tizenPlatform, "3.9")
-            ? TizenSignatureDigest.Sha512
-            : TizenSignatureDigest.Sha256;
+        RequiresLegacyAdaptation(tizenPlatform)
+            ? TizenSignatureDigest.Sha256
+            : TizenSignatureDigest.Sha512;
+
+    public static string PrepareUnsignedWgtForDevice(
+        string tvTizenDirectory,
+        string outputWgtPath,
+        string tizenPlatform,
+        bool lean = false)
+    {
+        BuildUnsignedWgtFromFolder(tvTizenDirectory, outputWgtPath);
+        if (lean || RequiresLegacyAdaptation(tizenPlatform))
+            AdaptWgtInPlace(outputWgtPath, lean);
+        else
+            UpdateConfigXmlInWgt(outputWgtPath, xml => ScreenResolutionRegex().Replace(NetworkPublicRegex().Replace(xml, ""), ""));
+        return outputWgtPath;
+    }
 
     public static string PrepareAndSignWgtForDevice(
         string tvTizenDirectory,
@@ -90,15 +104,12 @@ public static partial class TizenPackageAdapter
         string tizenPlatform,
         string authorP12Path,
         string distributorP12Path,
-        string password)
+        string password,
+        bool lean = false)
     {
-        BuildUnsignedWgtFromFolder(tvTizenDirectory, outputWgtPath);
-        if (RequiresLegacyAdaptation(tizenPlatform))
-            AdaptWgtInPlace(outputWgtPath, lean: false);
-        else
-            UpdateConfigXmlInWgt(outputWgtPath, xml => NetworkPublicRegex().Replace(xml, ""));
-
-        SignWgtInPlace(outputWgtPath, authorP12Path, distributorP12Path, password, GetRecommendedDigest(tizenPlatform));
+        PrepareUnsignedWgtForDevice(tvTizenDirectory, outputWgtPath, tizenPlatform, lean);
+        var digest = lean ? TizenSignatureDigest.Sha256 : GetRecommendedDigest(tizenPlatform);
+        SignWgtInPlace(outputWgtPath, authorP12Path, distributorP12Path, password, digest);
         return outputWgtPath;
     }
 
@@ -297,8 +308,41 @@ public static partial class TizenPackageAdapter
         var leaf = certs.FirstOrDefault(c => c.HasPrivateKey) ?? throw new CryptographicException("PKCS#12 özel anahtar içermiyor.");
         var rsa = leaf.GetRSAPrivateKey() ?? throw new CryptographicException("RSA anahtarı bulunamadı.");
         var chain = new List<byte[]> { leaf.RawData };
-        chain.AddRange(certs.Where(c => c.Thumbprint != leaf.Thumbprint && c.Subject != c.Issuer).Select(c => c.RawData));
+        var intermediate = PickBestIntermediateCa(leaf, certs.Where(c => c.Thumbprint != leaf.Thumbprint));
+        if (intermediate is not null)
+            chain.Add(intermediate.RawData);
         return new LoadedSigner(rsa, chain, certs);
+    }
+
+    internal static X509Certificate2? PickBestIntermediateCa(
+        X509Certificate2 leaf,
+        IEnumerable<X509Certificate2> candidates)
+    {
+        var matches = candidates
+            .Where(ca => ca.Subject == leaf.Issuer && ca.Subject != ca.Issuer)
+            .OrderByDescending(ca => ca.NotBefore)
+            .ToList();
+
+        foreach (var ca in matches)
+        {
+            try
+            {
+                using var xchain = new X509Chain();
+                xchain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
+                xchain.ChainPolicy.VerificationFlags = X509VerificationFlags.AllowUnknownCertificateAuthority
+                                                       | X509VerificationFlags.IgnoreNotTimeValid;
+                xchain.ChainPolicy.ExtraStore.Add(ca);
+                if (xchain.Build(leaf) &&
+                    !xchain.ChainStatus.Any(s => (s.Status & X509ChainStatusFlags.NotSignatureValid) != 0) &&
+                    xchain.ChainElements.Any(e => e.Certificate.Thumbprint == ca.Thumbprint))
+                {
+                    return ca;
+                }
+            }
+            catch { }
+        }
+
+        return matches.FirstOrDefault();
     }
 
     private sealed record LoadedSigner(RSA Key, IReadOnlyList<byte[]> Chain, X509Certificate2Collection Certs) : IDisposable

@@ -1,4 +1,4 @@
-# ESSVB-sub Başlangıç ve Görsel Kurulum Rehberi (`v1.5.0`)
+# ESSVB-sub Başlangıç ve Görsel Kurulum Rehberi (`v1.6.0`)
 
 Hiç teknik bilginiz olmasa bile aşağıdaki **5 resimli adımı** sırayla izleyerek **5 dakika içinde** bilgisayarda, **Samsung 65" CU8500 / MU9000 TV**'nizde ve **PlayStation 5 / PS4 Pro** konsolunuzda canlı Türkçe altyazıyı açabilirsiniz. Bu rehberin tamamına uygulamanın üst menüsündeki **`Yardım & Hakkında`** sekmesinden de her zaman ulaşabilirsiniz.
 
@@ -9,13 +9,13 @@ Hiç teknik bilginiz olmasa bile aşağıdaki **5 resimli adımı** sırayla izl
 ![Bilgisayar Kurulum Rehberi](docs/images/01-pc-kurulum.png)
 
 ### Windows 11 — Seçenek 1: Hazır Tek Dosya `.exe` (En Kolay, `.NET` Kurulumu Gerekmez!)
-1. [GitHub Releases](https://github.com/ibrahimsaglammm/ESSVB-sub/releases/latest) sayfasından **`ESSVB-sub-v1.5.0-win11-x64.exe`** dosyasını indirin.
+1. [GitHub Releases](https://github.com/ibrahimsaglammm/ESSVB-sub/releases/latest) sayfasından **`ESSVB-sub-v1.6.0-win11-x64.exe`** dosyasını indirin.
 2. İndirdiğiniz `.exe` dosyasına **çift tıklayın** — harici `.NET SDK/Runtime` kurmanıza gerek kalmadan doğrudan açılır; Rust hızlandırma (`essvb_fast.dll`), 5 rehber görseli ve Samsung TV paketi içine gömülüdür.
 
 ### Windows 11 — Seçenek 2: Kaynak Koddan Tek Tıkla Kurulum / `.exe` Üretme
 1. Bu GitHub sayfasının sağ üstündeki yeşil **`<> Code`** butonuna tıklayıp **`Download ZIP`** seçin (veya `git clone https://github.com/ibrahimsaglammm/ESSVB-sub.git` komutunu çalıştırın).
 2. Klasör içindeki **`Start-ESSVB-sub.bat`** dosyasına çift tıklayın (Masaüstünüze **`ESSVB-sub`** kısayolunu ekler ve açar).
-3. İsterseniz yerel `dist\ESSVB-sub-v1.5.0-win11-x64.exe` dosyasını kendiniz üretmek için `powershell -ExecutionPolicy Bypass -File .\build-windows-exe.ps1` komutunu çalıştırabilirsiniz.
+3. İsterseniz yerel `dist\ESSVB-sub-v1.6.0-win11-x64.exe` dosyasını kendiniz üretmek için `powershell -ExecutionPolicy Bypass -File .\build-windows-exe.ps1` komutunu çalıştırabilirsiniz.
 
 ### CachyOS / Arch Linux (Tek Satır Kurulum)
 ```bash
@@ -97,7 +97,7 @@ Konsola bilgisayar penceresi açmadan doğrudan arka plandan bağlanmak için (`
 - **Taşı & Boyutlandır:** **`Altyazı Penceresini Taşı / Boyutlandır`** butonuna basın, kutuyu sürükleyip 8 kenar/köşeden büyütüp küçültün; işiniz bitince aynı butona tekrar basın. Konumunuz otomatik kaydedilir.
 - **Arka Plan Karartısı (`%0` – `%100`):** Sürgüyü `%0`'a çektiğinizde arka plan karartısı tamamen kalkar ve yazı okunaklı dış kontur/gölge ile görünür.
 - **Konuşmacı Renk Ayrımı:** Farklı karakterler (`KRATOS:`, `ATREUS:`) veya `- Satır 1` / `- Satır 2` diyalogları hem PC overlay'inde hem Samsung TV'de farklı renk ve sol vurgu şeridiyle ayrılır.
-- **Sürüm, Otomatik Ollama & Güncelleme Doğrulama:** **`Çeviriyi Başlat`**, **`Bağlantıyı Test Et`** veya **`Modelleri Tara`** butonlarına bastığınızda Ollama arka planda kapalıysa CLI otomatik başlatılır. Üst menüdeki **`Yardım & Hakkında`** sekmesinden kurulu sürümü (`v1.5.0`), Rust motoru (`essvb_fast.dll`) durumunu kontrol edebilir ve GitHub'da yeni sürüm bulunduğunda kullanıcı izniyle SHA-256 doğrulamalı güncelleme başlatabilirsiniz.
+- **Sürüm, TV Kurulum Durumu, Otomatik Ollama & Güncelleme Doğrulama:** Samsung TV kartındaki butonların altında TV'de kurulum/SDB/başlatma durumu canlı kutuyla gösterilir. **`Çeviriyi Başlat`**, **`Bağlantıyı Test Et`** veya **`Modelleri Tara`** butonlarına bastığınızda Ollama arka planda kapalıysa CLI otomatik başlatılır. Üst menüdeki **`Yardım & Hakkında`** sekmesinden kurulu sürümü (`v1.6.0`), Rust motoru (`essvb_fast.dll` `v2`) durumunu kontrol edebilir ve GitHub'da yeni sürüm bulunduğunda kullanıcı izniyle SHA-256 doğrulamalı güncelleme başlatabilirsiniz.
 - **Çoklu Dil, Alt Şerit Filtresi & Oyun Türü Kütüphaneleri:** Sağ paneldeki **`Kaynak Dil`** (`Otomatik Algıla` dahil 15 dil) ve **`Oyun / İçerik Türü`** seçicileriyle oyununuzun diline ve türüne özel sözlük + üslup anında devreye girer; sol paneldeki **`Sadece Alt Şeridi Yakala`** kutucuğu ise kenardaki HUD yazılarını otomatik yoksayar. Kota/bağlantı sorununda alt kısımda küçük **kırmızı uyarı bandı** belirir ve açıksa yerel Ollama yedeği devralır.
 
 ---

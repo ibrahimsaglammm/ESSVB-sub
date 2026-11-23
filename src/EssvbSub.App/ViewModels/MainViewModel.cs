@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Threading;
@@ -68,6 +69,32 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     private bool _isInstallingUpdate;
     private double _updateProgressPercent;
     private string _updateProgressText = "";
+    private bool _isTvInstallBusy;
+    private string _tvInstalledBadgeText = "Durum Bekleniyor";
+    private string _tvInstallStatusText = "TV durumu henüz kontrol edilmedi — 'TV Ara' veya 'Durumu Kontrol Et'e basın.";
+    private TvInstallVisualState _tvVisualState = TvInstallVisualState.Neutral;
+
+    private enum TvInstallVisualState { Neutral, Busy, Success, Warning, Error }
+
+    private static readonly IBrush TvBgNeutral = new SolidColorBrush(Color.Parse("#0D121B"));
+    private static readonly IBrush TvBorderNeutral = new SolidColorBrush(Color.Parse("#252C3B"));
+    private static readonly IBrush TvFgNeutral = new SolidColorBrush(Color.Parse("#9CA3AF"));
+
+    private static readonly IBrush TvBgBusy = new SolidColorBrush(Color.Parse("#111E2E"));
+    private static readonly IBrush TvBorderBusy = new SolidColorBrush(Color.Parse("#38BDF8"));
+    private static readonly IBrush TvFgBusy = new SolidColorBrush(Color.Parse("#38BDF8"));
+
+    private static readonly IBrush TvBgSuccess = new SolidColorBrush(Color.Parse("#0E241C"));
+    private static readonly IBrush TvBorderSuccess = new SolidColorBrush(Color.Parse("#10B981"));
+    private static readonly IBrush TvFgSuccess = new SolidColorBrush(Color.Parse("#34D399"));
+
+    private static readonly IBrush TvBgWarning = new SolidColorBrush(Color.Parse("#261E0D"));
+    private static readonly IBrush TvBorderWarning = new SolidColorBrush(Color.Parse("#F59E0B"));
+    private static readonly IBrush TvFgWarning = new SolidColorBrush(Color.Parse("#FBBF24"));
+
+    private static readonly IBrush TvBgError = new SolidColorBrush(Color.Parse("#261016"));
+    private static readonly IBrush TvBorderError = new SolidColorBrush(Color.Parse("#EF4444"));
+    private static readonly IBrush TvFgError = new SolidColorBrush(Color.Parse("#FF6B7A"));
 
     public MainViewModel()
     {
@@ -301,6 +328,61 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     {
         get => _isCheckingUpdates;
         private set { if (_isCheckingUpdates != value) { _isCheckingUpdates = value; OnPropertyChanged(); } }
+    }
+
+    public bool IsTvInstallBusy
+    {
+        get => _isTvInstallBusy;
+        private set { if (_isTvInstallBusy != value) { _isTvInstallBusy = value; OnPropertyChanged(); } }
+    }
+
+    public string TvInstalledBadgeText
+    {
+        get => _tvInstalledBadgeText;
+        private set { if (_tvInstalledBadgeText != value) { _tvInstalledBadgeText = value; OnPropertyChanged(); } }
+    }
+
+    public string TvInstallStatusText
+    {
+        get => _tvInstallStatusText;
+        private set { if (_tvInstallStatusText != value) { _tvInstallStatusText = value; OnPropertyChanged(); } }
+    }
+
+    public IBrush TvStatusBackground => _tvVisualState switch
+    {
+        TvInstallVisualState.Busy => TvBgBusy,
+        TvInstallVisualState.Success => TvBgSuccess,
+        TvInstallVisualState.Warning => TvBgWarning,
+        TvInstallVisualState.Error => TvBgError,
+        _ => TvBgNeutral
+    };
+
+    public IBrush TvStatusBorderBrush => _tvVisualState switch
+    {
+        TvInstallVisualState.Busy => TvBorderBusy,
+        TvInstallVisualState.Success => TvBorderSuccess,
+        TvInstallVisualState.Warning => TvBorderWarning,
+        TvInstallVisualState.Error => TvBorderError,
+        _ => TvBorderNeutral
+    };
+
+    public IBrush TvStatusForeground => _tvVisualState switch
+    {
+        TvInstallVisualState.Busy => TvFgBusy,
+        TvInstallVisualState.Success => TvFgSuccess,
+        TvInstallVisualState.Warning => TvFgWarning,
+        TvInstallVisualState.Error => TvFgError,
+        _ => TvFgNeutral
+    };
+
+    private void SetTvInstallFeedback(TvInstallVisualState state, string badge, string message)
+    {
+        _tvVisualState = state;
+        TvInstalledBadgeText = badge;
+        TvInstallStatusText = message;
+        OnPropertyChanged(nameof(TvStatusBackground));
+        OnPropertyChanged(nameof(TvStatusBorderBrush));
+        OnPropertyChanged(nameof(TvStatusForeground));
     }
 
     public bool IsInstallingUpdate
@@ -1159,13 +1241,17 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     public async Task DiscoverSamsungTvAsync()
     {
         IsBusy = true;
+        IsTvInstallBusy = true;
+        SetTvInstallFeedback(TvInstallVisualState.Busy, "TV Aranıyor…", "Yerel ağda Samsung Tizen TV'ler taranıyor…");
         try
         {
             AppendLog("Yerel ağda Samsung Tizen TV aranıyor...");
             var tvs = await SamsungTvInstaller.DiscoverTvsOnLanAsync();
             if (tvs.Count == 0)
             {
-                AppendLog("Ağda Samsung TV bulunamadı. TV'nin açık ve aynı ağda olduğundan emin olun.");
+                const string notFound = "Ağda Samsung TV bulunamadı. TV'nin açık ve bilgisayarla aynı ağda olduğundan emin olun.";
+                AppendLog(notFound);
+                SetTvInstallFeedback(TvInstallVisualState.Warning, "TV Bulunamadı", notFound);
                 return;
             }
 
@@ -1183,14 +1269,73 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
                 ? "Geliştirici Modu / SDB Açık"
                 : "Geliştirici Modu Kapalı (TV Ayarları > Uygulamalar > 12345 ile açın)";
             AppendLog($"TV Bulundu: {best.Name} [{best.ModelName ?? "Samsung"}] ({best.Host}) — {devStatus}");
+
+            var snap = await SamsungTvInstaller.CheckTvStatusAsync(best.Host);
+            ApplyTvStatusSnapshot(snap);
         }
         catch (Exception ex)
         {
             AppendLog($"Samsung TV arama hatası: {ex.Message}");
+            SetTvInstallFeedback(TvInstallVisualState.Error, "Arama Hatası", ex.Message);
         }
         finally
         {
+            IsTvInstallBusy = false;
             IsBusy = false;
+        }
+    }
+
+    public async Task CheckSamsungTvStatusAsync(bool silentIfBusy = false)
+    {
+        if (string.IsNullOrWhiteSpace(SamsungTvIp))
+        {
+            if (!silentIfBusy)
+                SetTvInstallFeedback(TvInstallVisualState.Warning, "IP Girilmedi", "Önce Samsung TV IP adresini girin veya 'TV Ara' butonuna basın.");
+            return;
+        }
+
+        if (silentIfBusy && (IsBusy || IsTvInstallBusy))
+            return;
+
+        if (!silentIfBusy)
+            IsBusy = true;
+        IsTvInstallBusy = true;
+        SetTvInstallFeedback(TvInstallVisualState.Busy, "Kontrol Ediliyor…", $"{SamsungTvIp.Trim()} üzerinden TV kurulum ve SDB durumu sorgulanıyor…");
+        try
+        {
+            var snap = await SamsungTvInstaller.CheckTvStatusAsync(SamsungTvIp.Trim());
+            ApplyTvStatusSnapshot(snap);
+            if (!silentIfBusy)
+                AppendLog(snap.Summary);
+        }
+        catch (Exception ex)
+        {
+            SetTvInstallFeedback(TvInstallVisualState.Error, "Kontrol Hatası", ex.Message);
+            if (!silentIfBusy)
+                AppendLog($"TV durum kontrolü hatası: {ex.Message}");
+        }
+        finally
+        {
+            IsTvInstallBusy = false;
+            if (!silentIfBusy)
+                IsBusy = false;
+        }
+    }
+
+    private void ApplyTvStatusSnapshot(SamsungTvStatusSnapshot snap)
+    {
+        if (snap.SdbReachable && snap.IsAppInstalled)
+        {
+            string badge = string.IsNullOrWhiteSpace(snap.InstalledVersion) ? "TV'de Kurulu" : $"TV'de Kurulu (v{snap.InstalledVersion})";
+            SetTvInstallFeedback(TvInstallVisualState.Success, badge, snap.Summary);
+        }
+        else if (snap.SdbReachable)
+        {
+            SetTvInstallFeedback(TvInstallVisualState.Warning, "TV'de Kurulu Değil", snap.Summary);
+        }
+        else
+        {
+            SetTvInstallFeedback(TvInstallVisualState.Error, "SDB Bağlantısı Yok", snap.Summary);
         }
     }
 
@@ -1198,11 +1343,21 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     {
         if (string.IsNullOrWhiteSpace(SamsungTvIp))
         {
-            AppendLog("Samsung TV IP adresini girin veya 'TV Ara'ya basın.");
+            const string noIp = "Samsung TV IP adresini girin veya 'TV Ara' butonuna basın.";
+            AppendLog(noIp);
+            SetTvInstallFeedback(TvInstallVisualState.Warning, "IP Gerekli", noIp);
             return;
         }
 
+        if (Output == OutputTarget.PcOverlay)
+        {
+            Output = Mode == OperatingMode.PlayStation ? OutputTarget.SamsungTv : OutputTarget.Both;
+            AppendLog($"Altyazı hedefi TV yayını için otomatik '{Output}' olarak güncellendi.");
+        }
+
         IsBusy = true;
+        IsTvInstallBusy = true;
+        SetTvInstallFeedback(TvInstallVisualState.Busy, "Kuruluyor…", "TV SDB bağlantısı ve sertifika kontrolü başlatılıyor…");
         try
         {
             string tvDir = Path.Combine(AppContext.BaseDirectory, "tv-tizen");
@@ -1213,7 +1368,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
 
             string host = SamsungTvIp.Trim();
             string localUrl = $"http://{GetPreferredLanIp(host)}:{_server.ListeningPort}";
-            await SamsungTvInstaller.InstallAndLaunchAsync(
+            var report = await SamsungTvInstaller.InstallAndLaunchAsync(
                 host,
                 tvDir,
                 EssvbPaths.ProfilesDir,
@@ -1221,17 +1376,30 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
                 localUrl,
                 _server.AccessToken,
                 HdmiPort,
-                msg => Dispatcher.UIThread.Post(() => AppendLog(msg)),
+                msg => Dispatcher.UIThread.Post(() =>
+                {
+                    AppendLog(msg);
+                    TvInstallStatusText = msg;
+                }),
                 selectedModel: SelectedTvModel);
 
-            AppendLog("Samsung Tizen TV uygulaması kuruldu ve başlatıldı!");
+            string badge = string.IsNullOrWhiteSpace(report.InstalledVersion)
+                ? "TV'de Kurulu"
+                : $"TV'de Kurulu (v{report.InstalledVersion})";
+            SetTvInstallFeedback(
+                report.Launched ? TvInstallVisualState.Success : TvInstallVisualState.Warning,
+                badge,
+                report.Summary);
+            AppendLog(report.Summary);
         }
         catch (Exception ex)
         {
+            SetTvInstallFeedback(TvInstallVisualState.Error, "Kurulum Başarısız", ex.Message);
             AppendLog($"Samsung TV kurulum hatası: {ex.Message}");
         }
         finally
         {
+            IsTvInstallBusy = false;
             IsBusy = false;
         }
     }
@@ -1240,26 +1408,47 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     {
         if (string.IsNullOrWhiteSpace(SamsungTvIp))
         {
-            AppendLog("Samsung TV IP adresini girin veya 'TV Ara'ya basın.");
+            const string noIp = "Samsung TV IP adresini girin veya 'TV Ara' butonuna basın.";
+            AppendLog(noIp);
+            SetTvInstallFeedback(TvInstallVisualState.Warning, "IP Gerekli", noIp);
             return;
         }
 
+        if (Output == OutputTarget.PcOverlay)
+        {
+            Output = Mode == OperatingMode.PlayStation ? OutputTarget.SamsungTv : OutputTarget.Both;
+            AppendLog($"Altyazı hedefi TV yayını için otomatik '{Output}' olarak güncellendi.");
+        }
+
         IsBusy = true;
+        IsTvInstallBusy = true;
+        SetTvInstallFeedback(TvInstallVisualState.Busy, "Başlatılıyor…", $"{SamsungTvIp.Trim()} üzerindeki ESSVB-sub uygulaması kontrol ediliyor ve başlatılıyor…");
         try
         {
             string host = SamsungTvIp.Trim();
             string localUrl = $"http://{GetPreferredLanIp(host)}:{_server.ListeningPort}";
-            bool ok = await SamsungTvInstaller.LaunchAsync(host, localUrl, _server.AccessToken, HdmiPort);
-            AppendLog(ok
-                ? "ESSVB-sub TV'de başlatıldı."
-                : "TV'de başlatılamadı (Uygulama TV'ye kurulu mu ve TV Geliştirici Modu açık mı?).");
+            var (ok, message) = await SamsungTvInstaller.LaunchWithDetailAsync(host, localUrl, _server.AccessToken, HdmiPort);
+            AppendLog(message);
+
+            if (ok)
+            {
+                SetTvInstallFeedback(TvInstallVisualState.Success, "TV'de Açık", message);
+            }
+            else
+            {
+                var snap = await SamsungTvInstaller.CheckTvStatusAsync(host);
+                string badge = snap.SdbReachable && !snap.IsAppInstalled ? "TV'de Kurulu Değil" : "Başlatılamadı";
+                SetTvInstallFeedback(snap.SdbReachable && !snap.IsAppInstalled ? TvInstallVisualState.Warning : TvInstallVisualState.Error, badge, message);
+            }
         }
         catch (Exception ex)
         {
+            SetTvInstallFeedback(TvInstallVisualState.Error, "Başlatma Hatası", ex.Message);
             AppendLog($"TV başlatma hatası: {ex.Message}");
         }
         finally
         {
+            IsTvInstallBusy = false;
             IsBusy = false;
         }
     }

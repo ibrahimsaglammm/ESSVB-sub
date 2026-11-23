@@ -14,7 +14,7 @@ public static class AppInfo
 {
     public const string Brand = "ESSVB";
     public const string AppName = "ESSVB-sub";
-    public const string FallbackVersion = "1.5.0";
+    public const string FallbackVersion = "1.6.0";
     public const string GitHubOwner = "ibrahimsaglammm";
     public const string GitHubRepo = "ESSVB-sub";
     public const string GitHubRepoUrl = "https://github.com/ibrahimsaglammm/ESSVB-sub";
@@ -78,7 +78,7 @@ public static class AppInfo
 
     public static string RustEngineSummary =>
         RustFastAccel.IsAvailable
-            ? "Aktif — Yerel Rust Motoru (essvb_fast, SIMD + LTO)"
+            ? $"Aktif — Yerel Rust Motoru v{RustFastAccel.EngineVersion} (essvb_fast, SIMD + LTO)"
             : "Yedek — Saf C# Görüntü İşleme Motoru";
 
     public static string BuildDateLocal

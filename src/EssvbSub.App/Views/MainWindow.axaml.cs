@@ -41,9 +41,14 @@ public partial class MainWindow : Window
 
         try
         {
-            await Task.Delay(1500);
-            if (Vm is { AutoCheckUpdates: true } vm)
-                await vm.CheckForUpdatesAsync(userInitiated: false);
+            await Task.Delay(1200);
+            if (Vm is { } vm)
+            {
+                if (!string.IsNullOrWhiteSpace(vm.SamsungTvIp))
+                    _ = vm.CheckSamsungTvStatusAsync(silentIfBusy: true);
+                if (vm.AutoCheckUpdates)
+                    await vm.CheckForUpdatesAsync(userInitiated: false);
+            }
         }
         catch { }
     }
@@ -211,6 +216,7 @@ public partial class MainWindow : Window
     private async void OnDiscoverSamsungTv(object? sender, RoutedEventArgs e) { if (Vm is not null) await Vm.DiscoverSamsungTvAsync(); }
     private async void OnInstallSamsungTv(object? sender, RoutedEventArgs e) { if (Vm is not null) await Vm.InstallSamsungTvAppAsync(); }
     private async void OnLaunchSamsungTv(object? sender, RoutedEventArgs e) { if (Vm is not null) await Vm.LaunchSamsungTvAppAsync(); }
+    private async void OnCheckSamsungTvStatus(object? sender, RoutedEventArgs e) { if (Vm is not null) await Vm.CheckSamsungTvStatusAsync(); }
     private void OnApproveTvPairing(object? sender, RoutedEventArgs e) => Vm?.ApproveTvPairing(true);
     private void OnRejectTvPairing(object? sender, RoutedEventArgs e) => Vm?.ApproveTvPairing(false);
     private async void OnRefreshModels(object? sender, RoutedEventArgs e) { if (Vm is not null) await Vm.RefreshModelsAsync(autoStartOllama: true); }
