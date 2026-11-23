@@ -100,10 +100,10 @@ public readonly record struct TextBox(double Left, double Top, double Right, dou
 }
 
 /// <summary>Normalized subtitle scan region [0..1] on the captured frame.</summary>
-public sealed record CropRegion(double Top = 0.66, double Bottom = 0.96, double Left = 0.12, double Right = 0.88)
+public sealed record CropRegion(double Top = 0.74, double Bottom = 0.96, double Left = 0.14, double Right = 0.86)
 {
     public static CropRegion Default => new();
-    public static CropRegion MediaBottom => new(0.72, 0.96, 0.10, 0.90);
+    public static CropRegion MediaBottom => new(0.75, 0.97, 0.14, 0.86);
 
     public CropRegion Clamp()
     {
@@ -166,7 +166,8 @@ public enum SubtitleEventKind
 {
     Subtitle,
     Clear,
-    Style
+    Style,
+    StatusAlert
 }
 
 public sealed record SpeakerColor(string Name, string HexColor);
@@ -184,6 +185,12 @@ public sealed record SubtitleEvent(
 }
 
 public sealed record TranslationContextLine(string Source, string? Translation = null);
+
+public sealed record TranslationOutcome(
+    string Text,
+    bool IsFallback = false,
+    bool IsRateLimited = false,
+    string? AlertMessage = null);
 
 public interface ITextReader
 {
@@ -203,9 +210,20 @@ public interface ITextTranslator
         CancellationToken cancellationToken = default);
 }
 
+public interface ITranslationOutcomeTranslator : ITextTranslator
+{
+    Task<TranslationOutcome> TranslateDetailedAsync(
+        string text,
+        IReadOnlyList<TranslationContextLine> context,
+        string? mediaTitle,
+        IReadOnlyList<string>? characterNames,
+        CancellationToken cancellationToken = default);
+}
+
 public interface ISubtitleSink
 {
     void SendSubtitle(string text, string sourceText, int durationMs = 15000, TextBox? box = null, bool replaces = false);
     void Clear();
     void SendStyle(SubtitleStyle style);
+    void SendAlert(string? message) { }
 }

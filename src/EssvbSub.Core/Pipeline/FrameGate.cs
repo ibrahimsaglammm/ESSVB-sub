@@ -3,29 +3,91 @@
 namespace EssvbSub.Core.Pipeline;
 
 /// <summary>
-/// Single-flight frame admission gate preventing OCR backlogs on slower CPUs.
-/// If OCR is still busy with a previous frame, incoming frames are dropped cleanly.
+/// Single-flight frame admission gate with monotonic token ownership and a 15-second stuck-OCR watchdog.
+/// Optionally buffers the latest skipped frame so static-window pauses still process the final frame.
 /// </summary>
 public sealed class FrameGate
 {
-    private int _busy;
+    public const int DefaultStuckAfterMs = 15_000;
 
-    public bool TryEnter() => Interlocked.CompareExchange(ref _busy, 1, 0) == 0;
+    private readonly object _gate = new();
+    private readonly int _stuckAfterMs;
+    private bool _busy;
+    private long _enteredAt;
+    private long _currentToken;
 
-    public void Exit() => Volatile.Write(ref _busy, 0);
+    public FrameGate(int stuckAfterMs = DefaultStuckAfterMs)
+    {
+        _stuckAfterMs = Math.Max(1000, stuckAfterMs);
+    }
 
-    public void Reset() => Volatile.Write(ref _busy, 0);
+    public bool TryEnter() => TryEnter(out _);
+
+    public bool TryEnter(out long token)
+    {
+        lock (_gate)
+        {
+            if (_busy)
+            {
+                token = 0;
+                return false;
+            }
+
+            _busy = true;
+            _enteredAt = Environment.TickCount64;
+            token = ++_currentToken;
+            return true;
+        }
+    }
+
+    public bool IsStuck(long? nowTick = null)
+    {
+        lock (_gate)
+        {
+            if (!_busy) return false;
+            long now = nowTick ?? Environment.TickCount64;
+            return (now - _enteredAt) >= _stuckAfterMs;
+        }
+    }
+
+    public void Exit()
+    {
+        lock (_gate)
+        {
+            _busy = false;
+        }
+    }
+
+    public void Exit(long token)
+    {
+        lock (_gate)
+        {
+            if (token == _currentToken)
+                _busy = false;
+        }
+    }
+
+    public void Reset()
+    {
+        lock (_gate)
+        {
+            _busy = false;
+            _currentToken++;
+        }
+    }
 }
 
 public readonly record struct ReadPlan(bool ShouldRead, bool Deep);
 
 /// <summary>
 /// Decides whether the current frame changed enough to warrant running OCR,
-/// skipping redundant work on static scenes while occasionally forcing a deep read.
+/// skipping redundant work on static scenes while forcing periodic safety refreshes.
 /// </summary>
 public sealed class ReadScheduler
 {
-    public const double DefaultChangeThreshold = 0.018;
+    public const double DefaultChangeThreshold = 0.015;
+    private const int EmptyRefreshEveryFrames = 18;
+
     private readonly double _threshold;
     private readonly int _deepEveryUnchanged;
     private readonly bool _alwaysRead;
@@ -60,8 +122,11 @@ public sealed class ReadScheduler
         }
 
         _unchangedCount++;
-        bool shouldPeriodicDeep = !string.IsNullOrEmpty(_lastText) && (_unchangedCount % _deepEveryUnchanged == 0);
-        return new ReadPlan(ShouldRead: shouldPeriodicDeep, Deep: false);
+        bool shouldPeriodicDeep = !string.IsNullOrEmpty(_lastText)
+            ? (_unchangedCount % _deepEveryUnchanged == 0)
+            : (_unchangedCount % EmptyRefreshEveryFrames == 0);
+
+        return new ReadPlan(ShouldRead: shouldPeriodicDeep, Deep: shouldPeriodicDeep && string.IsNullOrEmpty(_lastText));
     }
 
     public void Record(string recognizedText) => _lastText = recognizedText;

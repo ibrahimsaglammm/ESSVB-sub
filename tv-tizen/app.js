@@ -200,6 +200,22 @@
     eventSource.addEventListener('clear', function () {
       clearSubtitle();
     });
+
+    eventSource.addEventListener('alert', function (e) {
+      try {
+        var payload = JSON.parse(e.data);
+        var msg = (payload && payload.text) ? String(payload.text).trim() : '';
+        var el = $('status-alert');
+        if (!el) return;
+        if (msg) {
+          el.textContent = msg;
+          el.className = '';
+        } else {
+          el.textContent = '';
+          el.className = 'hidden';
+        }
+      } catch (err) {}
+    });
   }
 
   function applyStyle(s) {

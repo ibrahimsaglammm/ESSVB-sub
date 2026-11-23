@@ -8,8 +8,8 @@ namespace EssvbSub.Core.Pipeline;
 public sealed record PipelineMetrics(int OcrMs, int TranslationMs, int TotalLatencyMs, bool FromCache);
 
 /// <summary>
-/// Orchestrates Frame -> ROI Crop -> Change Signature -> OCR -> Stabilization -> Context-Aware Translation -> Output Sink.
-/// Also supports direct transcript injection for MediaStream audio loopback mode.
+/// Orchestrates Frame -> ROI Crop -> Change Signature -> OCR -> Spatial Filter -> Stabilization -> Context Translation -> Output Sink.
+/// Strictly prevents untranslated echoes or fallback errors from entering context history or disk cache.
 /// </summary>
 public sealed class SubtitlePipeline : IDisposable
 {
@@ -24,6 +24,7 @@ public sealed class SubtitlePipeline : IDisposable
     private readonly TranslationCache? _cache;
     private readonly Func<long> _clock;
     private readonly SubtitleStabilizer _stabilizer;
+    private readonly SubtitleRegionFilter _regionFilter = new();
     private readonly object _gate = new();
 
     private readonly List<TranslationContextLine> _contextHistory = [];
@@ -36,6 +37,8 @@ public sealed class SubtitlePipeline : IDisposable
     private long? _activeLineLeftAt;
     private string _activeSource = "";
     private string _activeTranslation = "";
+    private string? _mediaTitle;
+    private string _sourceLanguage = "auto";
     private Reading _lastReading = Reading.Empty;
     private int _lastOcrMs;
 
@@ -65,7 +68,36 @@ public sealed class SubtitlePipeline : IDisposable
     }
 
     public bool ShowSpeakerNames { get; set; } = true;
-    public string? MediaTitle { get; set; }
+    public bool StrictBottomOnly { get; set; } = true;
+    public string GenrePresetId { get; set; } = "general";
+    public string CacheSalt { get; set; } = "";
+
+    public string SourceLanguage
+    {
+        get => _sourceLanguage;
+        set
+        {
+            _sourceLanguage = string.IsNullOrWhiteSpace(value) ? "auto" : value.Trim();
+            lock (_gate) _stabilizer.SourceLanguage = _sourceLanguage;
+        }
+    }
+
+    public string? MediaTitle
+    {
+        get => _mediaTitle;
+        set
+        {
+            lock (_gate)
+            {
+                if (!string.Equals(_mediaTitle, value, StringComparison.OrdinalIgnoreCase))
+                {
+                    _contextHistory.Clear();
+                    _characterNames.Clear();
+                }
+                _mediaTitle = value;
+            }
+        }
+    }
 
     public event Action<string>? OcrTextObserved;
     public event Action<string, string>? SubtitleTranslated;
@@ -91,9 +123,10 @@ public sealed class SubtitlePipeline : IDisposable
             if (_session != startedSession)
                 return;
 
-            string cleaned = OcrNoise.Clean(reading.Text);
-            screenBox = reading.Box?.PlacedIn(region.AsTextBox());
-            action = _stabilizer.Feed(cleaned, signature, reading.Box);
+            var filtered = _regionFilter.Filter(reading, StrictBottomOnly, _clock(), _sourceLanguage);
+            string cleaned = OcrNoise.Clean(filtered.Text, _sourceLanguage);
+            screenBox = filtered.Box?.PlacedIn(region.AsTextBox());
+            action = _stabilizer.Feed(cleaned, signature, filtered.Box);
 
             switch (action.Kind)
             {
@@ -112,6 +145,8 @@ public sealed class SubtitlePipeline : IDisposable
 
                 case StabilizerActionKind.Translate:
                     _activeLineLeftAt = null;
+                    if (action.IsRevision)
+                        CancelInFlightForGrowth();
                     EnqueueTranslation(startedSession, action.Text!, screenBox, action.IsRevision, captured, ocrMs);
                     return;
             }
@@ -151,8 +186,10 @@ public sealed class SubtitlePipeline : IDisposable
             cts = _activeJobCts;
             _activeJobCts = null;
             _scheduler.Reset();
+            _regionFilter.Reset();
             clearAction = _stabilizer.Reset();
             _contextHistory.Clear();
+            _characterNames.Clear();
             _activeSource = "";
             _activeTranslation = "";
             _activeLineLeftAt = null;
@@ -160,8 +197,15 @@ public sealed class SubtitlePipeline : IDisposable
             _lastOcrMs = 0;
         }
         cts?.Cancel();
+        _sink.SendAlert(null);
         if (clearAction.Kind == StabilizerActionKind.Clear)
             _sink.Clear();
+    }
+
+    private void CancelInFlightForGrowth()
+    {
+        try { _activeJobCts?.Cancel(); } catch { }
+        _queue.Clear();
     }
 
     private (Reading Reading, int OcrMs, byte[] Signature) RunOcr(Frame frame, CropRegion region, int startedSession)
@@ -203,6 +247,11 @@ public sealed class SubtitlePipeline : IDisposable
 
     private void EnqueueTranslation(int session, string source, TextBox? box, bool replaces, long capturedAt, int ocrMs)
     {
+        // Avoid sending UI elements that are already written in Turkish to an AI translator
+        string sourceBody = SpeakerPrefix.Parse(source)?.Body ?? source;
+        if (TurkishText.LooksAlreadyTurkish(sourceBody))
+            return;
+
         OcrTextObserved?.Invoke(source);
 
         if (SpeakerPrefix.Parse(source) is { } split)
@@ -210,9 +259,10 @@ public sealed class SubtitlePipeline : IDisposable
 
         // Cache hit: show instantaneously with 0 ms translation latency
         string cacheKey = BuildCacheKey(source);
-        if (_cache is not null && _cache.TryGet(cacheKey, out var cached))
+        if (_cache is not null && _cache.TryGet(cacheKey, out var cached) &&
+            !TextMatch.IsUntranslatedEcho(source, cached))
         {
-            ShowResult(session, source, cached, box, replaces, capturedAt, ocrMs, transMs: 0, fromCache: true);
+            ShowResult(session, source, cached, box, replaces, capturedAt, ocrMs, transMs: 0, fromCache: true, recordContext: true, cacheable: false);
             return;
         }
 
@@ -250,6 +300,9 @@ public sealed class SubtitlePipeline : IDisposable
                 if (job.Session != _session)
                     continue;
 
+                if (_activeLineLeftAt is { } preLeftAt && (_clock() - preLeftAt) > LateResultMs)
+                    continue;
+
                 context = [.. _contextHistory];
                 names = [.. _characterNames];
                 title = MediaTitle;
@@ -264,18 +317,49 @@ public sealed class SubtitlePipeline : IDisposable
                 var split = SpeakerPrefix.Parse(job.Source);
                 string bodyToTranslate = split?.Body ?? job.Source;
 
-                string translatedBody = await _translator.TranslateAsync(
-                    bodyToTranslate,
-                    context,
-                    title,
-                    names,
-                    cts.Token).ConfigureAwait(false);
+                TranslationOutcome outcome;
+                if (_translator is ITranslationOutcomeTranslator detailed)
+                {
+                    outcome = await detailed.TranslateDetailedAsync(
+                        bodyToTranslate,
+                        context,
+                        title,
+                        names,
+                        cts.Token).ConfigureAwait(false);
+                }
+                else
+                {
+                    string rawText = await _translator.TranslateAsync(
+                        bodyToTranslate,
+                        context,
+                        title,
+                        names,
+                        cts.Token).ConfigureAwait(false);
+                    outcome = new TranslationOutcome(rawText);
+                }
 
                 int transMs = (int)Math.Clamp(_clock() - transStart, 0, int.MaxValue);
-                string finalTranslation = SpeakerPrefix.AttachIfEnabled(translatedBody.Trim(), job.Source, ShowSpeakerNames);
+                string finalTranslation = string.IsNullOrWhiteSpace(outcome.Text)
+                    ? ""
+                    : SpeakerPrefix.AttachIfEnabled(outcome.Text.Trim(), job.Source, ShowSpeakerNames);
 
-                if (string.IsNullOrWhiteSpace(finalTranslation))
+                _sink.SendAlert(outcome.AlertMessage);
+
+                bool isUntranslated = string.IsNullOrWhiteSpace(finalTranslation) ||
+                                      TextMatch.IsUntranslatedEcho(job.Source, finalTranslation);
+
+                if (isUntranslated)
+                {
+                    // Do NOT push untranslated English or empty strings into cache, context, or overlay!
+                    lock (_gate)
+                    {
+                        if (job.Session == _session)
+                            _stabilizer.ForgetSent();
+                    }
+                    if (!string.IsNullOrWhiteSpace(outcome.AlertMessage))
+                        DiagnosticLogged?.Invoke(outcome.AlertMessage);
                     continue;
+                }
 
                 lock (_gate)
                 {
@@ -288,17 +372,22 @@ public sealed class SubtitlePipeline : IDisposable
                         continue;
                     }
 
-                    _cache?.Store(BuildCacheKey(job.Source), finalTranslation);
-                    ShowResult(job.Session, job.Source, finalTranslation, job.Box, job.Replaces, job.CapturedAt, job.OcrMs, transMs, fromCache: false);
+                    bool allowCacheAndContext = !outcome.IsFallback;
+                    if (allowCacheAndContext)
+                        _cache?.Store(BuildCacheKey(job.Source), finalTranslation);
+
+                    ShowResult(job.Session, job.Source, finalTranslation, job.Box, job.Replaces, job.CapturedAt, job.OcrMs, transMs,
+                        fromCache: false, recordContext: allowCacheAndContext, cacheable: allowCacheAndContext);
                 }
             }
             catch (OperationCanceledException)
             {
-                // Pipeline reset or superseded
+                // Pipeline reset or superseded by newer growth line
             }
             catch (Exception ex)
             {
                 DiagnosticLogged?.Invoke($"Translation error: {ex.Message}");
+                _sink.SendAlert($"⚠ Çeviri hatası: {ex.Message}");
                 lock (_gate)
                 {
                     if (job.Session == _session)
@@ -317,7 +406,9 @@ public sealed class SubtitlePipeline : IDisposable
         long capturedAt,
         int ocrMs,
         int transMs,
-        bool fromCache)
+        bool fromCache,
+        bool recordContext,
+        bool cacheable)
     {
         if (session != _session)
             return;
@@ -325,19 +416,25 @@ public sealed class SubtitlePipeline : IDisposable
         _activeSource = source;
         _activeTranslation = translation;
 
-        _contextHistory.Add(new TranslationContextLine(source, translation));
-        while (_contextHistory.Count > MaxContextLines)
-            _contextHistory.RemoveAt(0);
+        if (recordContext)
+        {
+            _contextHistory.Add(new TranslationContextLine(source, translation));
+            while (_contextHistory.Count > MaxContextLines)
+                _contextHistory.RemoveAt(0);
+        }
 
         _sink.SendSubtitle(translation, source, box: box, replaces: replaces);
         SubtitleTranslated?.Invoke(source, translation);
 
         int totalMs = (int)Math.Clamp(_clock() - capturedAt, 0, int.MaxValue);
-        MetricsUpdated?.Invoke(new PipelineMetrics(ocrMs, transMs, totalMs, fromCache));
+        MetricsUpdated?.Invoke(new PipelineMetrics(ocrMs, transMs, totalMs, fromCache && !cacheable ? false : fromCache));
     }
 
-    private string BuildCacheKey(string source) =>
-        string.IsNullOrWhiteSpace(MediaTitle) ? source : $"{MediaTitle}\u001f{source}";
+    private string BuildCacheKey(string source)
+    {
+        string salt = string.IsNullOrWhiteSpace(CacheSalt) ? "" : $"{CacheSalt}\u001f";
+        return string.IsNullOrWhiteSpace(MediaTitle) ? $"{salt}{source}" : $"{salt}{MediaTitle}\u001f{source}";
+    }
 
     public void Dispose()
     {

@@ -10,7 +10,7 @@ Set-Location $RepoRoot
 
 Write-Host ""
 Write-Host "==============================================" -ForegroundColor Yellow
-Write-Host "  ESSVB-sub v1.3.0 — Windows 11 Kurulum & Acilis" -ForegroundColor Cyan
+Write-Host "  ESSVB-sub v1.4.0 — Windows 11 Kurulum & Acilis" -ForegroundColor Cyan
 Write-Host "==============================================" -ForegroundColor Yellow
 
 function Test-DotNet10 {
@@ -99,7 +99,7 @@ if ((Test-Path $LaunchExe) -and (-not (Test-Path $ShortcutPath) -or (-not $Launc
         $lnk = $shell.CreateShortcut($ShortcutPath)
         $lnk.TargetPath = $LaunchExe
         $lnk.WorkingDirectory = Split-Path -Parent $LaunchExe
-        $lnk.Description = "ESSVB-sub v1.3.0 Canli Altyazi & Ceviri Studyosu"
+        $lnk.Description = "ESSVB-sub v1.4.0 Canli Altyazi & Ceviri Studyosu"
         $lnk.IconLocation = "$LaunchExe,0"
         $lnk.Save()
         Write-Host "[3/3] Masaustu kisayolu hazir: $ShortcutPath -> $LaunchExe" -ForegroundColor Green

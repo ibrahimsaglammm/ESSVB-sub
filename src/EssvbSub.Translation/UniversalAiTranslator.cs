@@ -1,52 +1,77 @@
 // Copyright (c) 2026 ESSVB. All Rights Reserved.
 
+using System.Globalization;
 using System.Net;
+using System.Net.Http.Headers;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using EssvbSub.Core.Models;
+using EssvbSub.Core.Pipeline;
+using EssvbSub.Core.Storage;
 using EssvbSub.Translation.Providers;
 
 namespace EssvbSub.Translation;
 
 public sealed record TranslationTestResult(bool Success, string Message, string? SampleTranslation = null);
 
+public sealed record RateLimitInfo(int DelaySeconds, bool IsDailyQuota, int ReportedRpmQuota);
+
 /// <summary>
-/// Unified, context-aware translation engine supporting Local AI (Ollama, LM Studio, Custom OpenAI),
-/// Cloud AI (Gemini, Grok, OpenAI/ChatGPT, Claude, DeepL), and automatic local fallback on quota/network errors.
+/// Unified, multi-language, genre-aware translation engine supporting Local AI (Ollama, LM Studio, Custom OpenAI),
+/// Cloud AI (Gemini, Grok, OpenAI/ChatGPT, Claude, DeepL), proactive RPM budgeting, structured 429 backoff,
+/// Gemini safetySettings=BLOCK_NONE, and safe local Ollama backup without ever poisoning caches.
 /// </summary>
-public sealed partial class UniversalAiTranslator : ITextTranslator
+public sealed partial class UniversalAiTranslator : ITranslationOutcomeTranslator
 {
     public const string DefaultSystemPrompt =
-        "You translate English video game and movie subtitles into natural, conversational Turkish. " +
+        "You translate video game and movie subtitles into natural, conversational Turkish. " +
         "Use informal \"sen\" unless the dialogue is clearly formal. " +
         "Keep character names, proper nouns, and speaker prefixes like \"KRATOS:\" untranslated. " +
         "Preserve line breaks. OCR input may contain minor typos or dropped characters; infer the intended meaning cleanly. " +
         "If the line continues a previous sentence, keep grammatical continuity. " +
         "Reply with ONLY the Turkish translation string—no quotes, markdown fences, or explanations.";
 
+    public static readonly string[] GeminiSafetyCategories =
+    [
+        "HARM_CATEGORY_HARASSMENT",
+        "HARM_CATEGORY_HATE_SPEECH",
+        "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+        "HARM_CATEGORY_DANGEROUS_CONTENT",
+        "HARM_CATEGORY_CIVIC_INTEGRITY"
+    ];
+
     private static readonly JsonSerializerOptions CompactJson = new()
     {
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
     };
 
-    private static readonly HttpClient SharedCloudHttp = new() { Timeout = TimeSpan.FromSeconds(15) };
+    private static readonly HttpClient SharedCloudHttp = new() { Timeout = TimeSpan.FromSeconds(8) };
     private static readonly HttpClient SharedLocalHttp = new(new SocketsHttpHandler
     {
         UseProxy = false,
         AllowAutoRedirect = false
-    }) { Timeout = TimeSpan.FromSeconds(18) };
+    }) { Timeout = TimeSpan.FromSeconds(15) };
 
     private readonly AiProviderKind _provider;
     private readonly string _apiKey;
     private readonly string _model;
     private readonly string _endpoint;
     private readonly string? _customInstruction;
+    private readonly string _sourceLanguage;
+    private readonly string _genrePresetId;
+    private readonly UserGlossaryStore? _userGlossary;
     private readonly ITextTranslator? _fallback;
     private readonly HttpClient _http;
+    private readonly RequestBudget _budget;
+
     private DateTimeOffset _pausedUntil = DateTimeOffset.MinValue;
+    private string? _pauseAlertMessage;
+    private bool _pauseWasRateLimit;
+    private string? _lastEmittedAlert;
 
     public UniversalAiTranslator(
         AiProviderKind provider,
@@ -55,7 +80,11 @@ public sealed partial class UniversalAiTranslator : ITextTranslator
         string? endpoint = null,
         string? customInstruction = null,
         ITextTranslator? fallback = null,
-        HttpClient? httpClient = null)
+        HttpClient? httpClient = null,
+        string sourceLanguage = "auto",
+        string genrePresetId = "general",
+        UserGlossaryStore? userGlossary = null,
+        int maxRequestsPerMinute = -1)
     {
         _provider = provider;
         var descriptor = AiProviderCatalog.Get(provider);
@@ -63,11 +92,29 @@ public sealed partial class UniversalAiTranslator : ITextTranslator
         _model = string.IsNullOrWhiteSpace(model) ? descriptor.DefaultModel : model.Trim();
         _endpoint = string.IsNullOrWhiteSpace(endpoint) ? descriptor.DefaultEndpoint : endpoint.Trim();
         _customInstruction = string.IsNullOrWhiteSpace(customInstruction) ? null : customInstruction.Trim();
+        _sourceLanguage = string.IsNullOrWhiteSpace(sourceLanguage) ? "auto" : sourceLanguage.Trim();
+        _genrePresetId = string.IsNullOrWhiteSpace(genrePresetId) ? "general" : genrePresetId.Trim();
+        _userGlossary = userGlossary;
         _fallback = fallback;
         _http = httpClient ?? (descriptor.IsLocal ? SharedLocalHttp : SharedCloudHttp);
+
+        int rpm = maxRequestsPerMinute >= 0
+            ? maxRequestsPerMinute
+            : RequestBudget.DefaultLimitFor(provider, _model);
+        _budget = new RequestBudget(rpm);
     }
 
     public string EngineId => $"{_provider.ToString().ToLowerInvariant()}:{_model}";
+
+    public string CacheFingerprint
+    {
+        get
+        {
+            string raw = $"{_sourceLanguage}\0{_genrePresetId}\0{_customInstruction ?? ""}";
+            return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(raw)))[..8].ToLowerInvariant();
+        }
+    }
+
     public bool IsReady
     {
         get
@@ -78,6 +125,7 @@ public sealed partial class UniversalAiTranslator : ITextTranslator
     }
 
     public event Action<string>? StatusWarning;
+    public event Action<string?>? AlertChanged;
 
     public async Task<string> TranslateAsync(
         string text,
@@ -86,18 +134,50 @@ public sealed partial class UniversalAiTranslator : ITextTranslator
         IReadOnlyList<string>? characterNames,
         CancellationToken cancellationToken = default)
     {
+        var outcome = await TranslateDetailedAsync(text, context, mediaTitle, characterNames, cancellationToken)
+            .ConfigureAwait(false);
+        return string.IsNullOrWhiteSpace(outcome.Text) ? text : outcome.Text;
+    }
+
+    public async Task<TranslationOutcome> TranslateDetailedAsync(
+        string text,
+        IReadOnlyList<TranslationContextLine> context,
+        string? mediaTitle,
+        IReadOnlyList<string>? characterNames,
+        CancellationToken cancellationToken = default)
+    {
         if (string.IsNullOrWhiteSpace(text))
-            return "";
+            return new TranslationOutcome("");
 
         if (_provider == AiProviderKind.LocalMarian)
+            return await RunFallbackOutcomeAsync(text, context, mediaTitle, characterNames, isRateLimited: false,
+                baseAlert: "⚠ Çevrimdışı CTranslate2 modeli kurulu değil — Ollama veya AI API seçin", cancellationToken).ConfigureAwait(false);
+
+        if (!IsReady)
         {
-            return _fallback is not null
-                ? await _fallback.TranslateAsync(text, context, mediaTitle, characterNames, cancellationToken).ConfigureAwait(false)
-                : text;
+            string keyMsg = $"⚠ {AiProviderCatalog.Get(_provider).DisplayName} için API anahtarı girilmemiş";
+            return await RunFallbackOutcomeAsync(text, context, mediaTitle, characterNames, isRateLimited: false, keyMsg, cancellationToken)
+                .ConfigureAwait(false);
         }
 
-        if (!IsReady || DateTimeOffset.UtcNow < _pausedUntil)
-            return await RunFallbackAsync(text, context, mediaTitle, characterNames, cancellationToken).ConfigureAwait(false);
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        if (now < _pausedUntil)
+        {
+            int remSec = Math.Max(1, (int)Math.Ceiling((_pausedUntil - now).TotalSeconds));
+            string pausedMsg = _pauseAlertMessage is { Length: > 0 }
+                ? $"{_pauseAlertMessage} ({remSec} sn)"
+                : $"⚠ {AiProviderCatalog.Get(_provider).DisplayName} beklemede ({remSec} sn)";
+            return await RunFallbackOutcomeAsync(text, context, mediaTitle, characterNames, _pauseWasRateLimit, pausedMsg, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        if (!_budget.TryConsume(out int budgetWait))
+        {
+            string rpmMsg = $"⚠ {AiProviderCatalog.Get(_provider).DisplayName} dakikalık kota sınırına yaklaştı ({budgetWait} sn)";
+            SetPause(TimeSpan.FromSeconds(Math.Min(budgetWait, 15)), isRateLimited: true, rpmMsg);
+            return await RunFallbackOutcomeAsync(text, context, mediaTitle, characterNames, isRateLimited: true, rpmMsg, cancellationToken)
+                .ConfigureAwait(false);
+        }
 
         try
         {
@@ -107,16 +187,32 @@ public sealed partial class UniversalAiTranslator : ITextTranslator
 
             if (!resp.IsSuccessStatusCode)
             {
-                HandleFailureStatus(resp.StatusCode);
-                return await RunFallbackAsync(text, context, mediaTitle, characterNames, cancellationToken).ConfigureAwait(false);
+                var (alert, isRateLimited) = HandleFailureResponse(resp.StatusCode, resp.Headers, rawBody);
+                return await RunFallbackOutcomeAsync(text, context, mediaTitle, characterNames, isRateLimited, alert, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
+            if (TryDetectBlockedResponse(_provider, rawBody, out string blockReason))
+            {
+                string blockAlert = $"⚠ {_provider} güvenlik engeli ({blockReason})";
+                StatusWarning?.Invoke(blockAlert);
+                return await RunFallbackOutcomeAsync(text, context, mediaTitle, characterNames, isRateLimited: false, blockAlert, cancellationToken)
+                    .ConfigureAwait(false);
             }
 
             string extracted = ExtractResponseText(_provider, rawBody);
             string cleaned = CleanModelOutput(extracted);
-            if (string.IsNullOrWhiteSpace(cleaned))
-                return await RunFallbackAsync(text, context, mediaTitle, characterNames, cancellationToken).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(cleaned) || TextMatch.IsUntranslatedEcho(text, cleaned))
+            {
+                string emptyAlert = string.IsNullOrWhiteSpace(cleaned)
+                    ? $"⚠ {_provider} boş yanıt döndürdü"
+                    : $"⚠ {_provider} çeviriyi İngilizce bıraktı";
+                return await RunFallbackOutcomeAsync(text, context, mediaTitle, characterNames, isRateLimited: false, emptyAlert, cancellationToken)
+                    .ConfigureAwait(false);
+            }
 
-            return cleaned;
+            EmitAlert(null);
+            return new TranslationOutcome(cleaned, IsFallback: false, IsRateLimited: false, AlertMessage: null);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -124,9 +220,12 @@ public sealed partial class UniversalAiTranslator : ITextTranslator
         }
         catch (Exception ex)
         {
-            StatusWarning?.Invoke($"{_provider} bağlantı hatası ({ex.Message}); yerel yedeğe geçildi.");
-            _pausedUntil = DateTimeOffset.UtcNow.AddSeconds(_provider is AiProviderKind.Ollama or AiProviderKind.LmStudio ? 5 : 20);
-            return await RunFallbackAsync(text, context, mediaTitle, characterNames, cancellationToken).ConfigureAwait(false);
+            string errAlert = $"⚠ {_provider} bağlantı hatası ({ex.Message})";
+            StatusWarning?.Invoke(errAlert);
+            int pauseSec = _provider is AiProviderKind.Ollama or AiProviderKind.LmStudio ? 4 : 10;
+            SetPause(TimeSpan.FromSeconds(pauseSec), isRateLimited: false, errAlert);
+            return await RunFallbackOutcomeAsync(text, context, mediaTitle, characterNames, isRateLimited: false, errAlert, cancellationToken)
+                .ConfigureAwait(false);
         }
     }
 
@@ -198,10 +297,14 @@ public sealed partial class UniversalAiTranslator : ITextTranslator
             ValidateEndpointUri(_endpoint, requireHttps);
         }
 
-        string systemPrompt = string.IsNullOrWhiteSpace(_customInstruction)
-            ? DefaultSystemPrompt
-            : $"{DefaultSystemPrompt}\n\nExtra user instruction: {_customInstruction}";
-        string userPrompt = BuildUserPrompt(text, context, mediaTitle, characterNames);
+        string systemPrompt = BuildSystemPrompt();
+        var preset = GameGenreCatalog.Get(_genrePresetId);
+        IReadOnlyDictionary<string, string>? userTerms = null;
+        IReadOnlyList<string>? userKeep = null;
+        if (_userGlossary is not null)
+            (userTerms, userKeep) = _userGlossary.GetSnapshot();
+        var matchedGlossary = GameGenreCatalog.MatchTermsForLine(preset, text, userTerms, userKeep);
+        string userPrompt = BuildUserPrompt(text, context, mediaTitle, characterNames, matchedGlossary);
 
         return _provider switch
         {
@@ -211,6 +314,31 @@ public sealed partial class UniversalAiTranslator : ITextTranslator
             AiProviderKind.DeepL => BuildDeepLRequest(text, context),
             _ => BuildOpenAiCompatibleRequest(systemPrompt, userPrompt)
         };
+    }
+
+    internal string BuildSystemPrompt()
+    {
+        var langOpt = SourceLanguageCatalog.Get(_sourceLanguage);
+        string langRule = langOpt.Code == "auto"
+            ? "Detect the subtitle language automatically (English, Japanese, Korean, Chinese, Russian, German, French, Spanish, Arabic, etc.) and translate it into natural, conversational Turkish."
+            : $"Translate {langOpt.EnglishName} video game and movie subtitles into natural, conversational Turkish.";
+
+        var sb = new StringBuilder();
+        sb.Append(langRule).Append(' ');
+        sb.Append("Use informal \"sen\" unless the dialogue is clearly formal. ");
+        sb.Append("Keep character names, proper nouns, and speaker prefixes like \"KRATOS:\" untranslated. ");
+        sb.Append("Preserve line breaks. OCR input may contain minor typos or dropped characters; infer the intended meaning cleanly. ");
+        sb.Append("If the line continues a previous sentence, keep grammatical continuity. ");
+        sb.Append("Reply with ONLY the Turkish translation string—no quotes, markdown fences, or explanations.");
+
+        var preset = GameGenreCatalog.Get(_genrePresetId);
+        if (!string.IsNullOrWhiteSpace(preset.PromptGuidance))
+            sb.Append("\n\n").Append(preset.PromptGuidance);
+
+        if (!string.IsNullOrWhiteSpace(_customInstruction))
+            sb.Append("\n\nExtra user instruction: ").Append(_customInstruction);
+
+        return sb.ToString();
     }
 
     private HttpRequestMessage BuildOllamaNativeRequest(string system, string user)
@@ -243,6 +371,16 @@ public sealed partial class UniversalAiTranslator : ITextTranslator
         var req = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/models/{Uri.EscapeDataString(_model)}:generateContent");
         req.Headers.Add("x-goog-api-key", _apiKey);
 
+        var safetyArray = new JsonArray();
+        foreach (string category in GeminiSafetyCategories)
+        {
+            safetyArray.Add(new JsonObject
+            {
+                ["category"] = category,
+                ["threshold"] = "BLOCK_NONE"
+            });
+        }
+
         var body = new JsonObject
         {
             ["systemInstruction"] = new JsonObject { ["parts"] = new JsonArray(new JsonObject { ["text"] = system }) },
@@ -251,6 +389,7 @@ public sealed partial class UniversalAiTranslator : ITextTranslator
                 ["role"] = "user",
                 ["parts"] = new JsonArray(new JsonObject { ["text"] = user })
             }),
+            ["safetySettings"] = safetyArray,
             ["generationConfig"] = new JsonObject
             {
                 ["temperature"] = 0.1,
@@ -291,8 +430,15 @@ public sealed partial class UniversalAiTranslator : ITextTranslator
         var body = new JsonObject
         {
             ["text"] = new JsonArray(JsonValue.Create(text)),
-            ["target_lang"] = "TR"
+            ["target_lang"] = "TR",
+            ["formality"] = "prefer_less",
+            ["preserve_formatting"] = true
         };
+
+        var langOpt = SourceLanguageCatalog.Get(_sourceLanguage);
+        if (!string.IsNullOrEmpty(langOpt.DeepLCode))
+            body["source_lang"] = langOpt.DeepLCode;
+
         if (context.Count > 0)
             body["context"] = string.Join(" ", context.Select(c => c.Source));
 
@@ -332,14 +478,43 @@ public sealed partial class UniversalAiTranslator : ITextTranslator
         string text,
         IReadOnlyList<TranslationContextLine> context,
         string? mediaTitle,
-        IReadOnlyList<string>? characterNames)
+        IReadOnlyList<string>? characterNames) =>
+        BuildUserPrompt(text, context, mediaTitle, characterNames, null);
+
+    internal static string BuildUserPrompt(
+        string text,
+        IReadOnlyList<TranslationContextLine> context,
+        string? mediaTitle,
+        IReadOnlyList<string>? characterNames,
+        MatchedGlossaryContext? glossary)
     {
         var parts = new List<string>();
         if (!string.IsNullOrWhiteSpace(mediaTitle))
             parts.Add($"Title: {mediaTitle}");
 
-        if (characterNames is { Count: > 0 })
-            parts.Add($"Keep these character names untranslated: {string.Join(", ", characterNames)}");
+        var keepAll = new List<string>();
+        var keepSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (characterNames is not null)
+        {
+            foreach (var n in characterNames)
+            {
+                if (!string.IsNullOrWhiteSpace(n) && keepSeen.Add(n))
+                    keepAll.Add(n);
+            }
+        }
+        if (glossary?.KeepNames is not null)
+        {
+            foreach (var n in glossary.KeepNames)
+            {
+                if (!string.IsNullOrWhiteSpace(n) && keepSeen.Add(n))
+                    keepAll.Add(n);
+            }
+        }
+        if (keepAll.Count > 0)
+            parts.Add($"Keep these character names untranslated: {string.Join(", ", keepAll)}");
+
+        if (glossary?.Terms is { Count: > 0 } terms)
+            parts.Add($"Glossary (preferred Turkish terms): {string.Join("; ", terms.Select(t => $"{t.Source} = {t.Target}"))}");
 
         if (context.Count > 0)
         {
@@ -390,15 +565,12 @@ public sealed partial class UniversalAiTranslator : ITextTranslator
         if (string.IsNullOrWhiteSpace(raw)) return "";
         string text = raw.Trim();
 
-        // Strip reasoning model <think>...</think> blocks
         int thinkEnd = text.LastIndexOf("</think>", StringComparison.OrdinalIgnoreCase);
         if (thinkEnd >= 0)
             text = text[(thinkEnd + "</think>".Length)..].Trim();
 
-        // Strip common LLM control tokens
         text = ControlTokenRegex().Replace(text, "").Trim();
 
-        // Strip markdown fences if model emitted them
         if (text.StartsWith("```", StringComparison.Ordinal))
         {
             text = string.Join('\n',
@@ -407,49 +579,200 @@ public sealed partial class UniversalAiTranslator : ITextTranslator
                     .TakeWhile(l => !l.TrimStart().StartsWith("```", StringComparison.Ordinal))).Trim();
         }
 
-        // Unwrap surrounding quotes if model wrapped the single line
         if (text.Length >= 2 && ((text[0] == '"' && text[^1] == '"') || (text[0] == '“' && text[^1] == '”')))
             text = text[1..^1].Trim();
 
         return text;
     }
 
-    private void HandleFailureStatus(HttpStatusCode status)
+    internal static RateLimitInfo ParseRateLimitDetails(HttpResponseHeaders? headers, string responseBody)
     {
-        int code = (int)status;
-        if (code == 429)
+        int headerSeconds = 0;
+        if (headers?.RetryAfter is { } ra)
         {
-            StatusWarning?.Invoke($"{_provider} istek limitine ulaştı (429); geçici olarak yerel yedeğe geçildi.");
-            _pausedUntil = DateTimeOffset.UtcNow.AddSeconds(20);
+            if (ra.Delta is { } delta)
+                headerSeconds = Math.Max(0, (int)Math.Ceiling(delta.TotalSeconds));
+            else if (ra.Date is { } date)
+                headerSeconds = Math.Max(0, (int)Math.Ceiling((date - DateTimeOffset.UtcNow).TotalSeconds));
         }
-        else if (code is 401 or 403)
+
+        int rpcDelaySeconds = 0;
+        bool isDaily = false;
+        int reportedRpm = 0;
+
+        try
         {
-            StatusWarning?.Invoke($"{_provider} API anahtarı geçersiz ({code}).");
-            _pausedUntil = DateTimeOffset.UtcNow.AddMinutes(1);
+            var root = JsonNode.Parse(responseBody);
+            var errObj = root?["error"];
+            string errMsg = errObj?["message"]?.GetValue<string>() ?? "";
+            if (errMsg.Contains("per day", StringComparison.OrdinalIgnoreCase) ||
+                errMsg.Contains("insufficient_quota", StringComparison.OrdinalIgnoreCase) ||
+                errMsg.Contains("credit_balance", StringComparison.OrdinalIgnoreCase))
+            {
+                isDaily = true;
+            }
+
+            if (errObj?["details"]?.AsArray() is { } details)
+            {
+                foreach (var detail in details)
+                {
+                    string type = detail?["@type"]?.GetValue<string>() ?? "";
+                    if (type.Contains("RetryInfo", StringComparison.OrdinalIgnoreCase))
+                    {
+                        string? delayStr = detail?["retryDelay"]?.GetValue<string>();
+                        if (!string.IsNullOrWhiteSpace(delayStr))
+                        {
+                            string numPart = delayStr.Trim().TrimEnd('s', 'S');
+                            if (double.TryParse(numPart, NumberStyles.Float, CultureInfo.InvariantCulture, out double sec))
+                                rpcDelaySeconds = Math.Max(rpcDelaySeconds, (int)Math.Ceiling(sec));
+                        }
+                    }
+                    else if (type.Contains("QuotaFailure", StringComparison.OrdinalIgnoreCase) &&
+                             detail?["violations"]?.AsArray() is { } violations)
+                    {
+                        foreach (var v in violations)
+                        {
+                            string qId = v?["quotaId"]?.GetValue<string>() ?? "";
+                            if (qId.Contains("PerDay", StringComparison.OrdinalIgnoreCase))
+                                isDaily = true;
+
+                            string qVal = v?["quotaValue"]?.ToString() ?? "";
+                            if (int.TryParse(qVal, NumberStyles.Integer, CultureInfo.InvariantCulture, out int qNum) &&
+                                qId.Contains("PerMinute", StringComparison.OrdinalIgnoreCase))
+                            {
+                                reportedRpm = qNum;
+                            }
+                        }
+                    }
+                }
+            }
         }
-        else if (code == 404)
-        {
-            StatusWarning?.Invoke($"{_provider} modeli ({_model}) bulunamadı (HTTP 404); 'Modelleri Tara' ile yüklü bir model seçin.");
-            _pausedUntil = DateTimeOffset.UtcNow.AddSeconds(10);
-        }
-        else
-        {
-            StatusWarning?.Invoke($"{_provider} hata döndürdü (HTTP {code}); yerel yedeğe geçildi.");
-            _pausedUntil = DateTimeOffset.UtcNow.AddSeconds(15);
-        }
+        catch { }
+
+        int effectiveDelay = Math.Max(headerSeconds, rpcDelaySeconds);
+        if (effectiveDelay <= 0)
+            effectiveDelay = isDaily ? 60 : 20;
+
+        effectiveDelay = Math.Clamp(effectiveDelay, 2, 120);
+        return new RateLimitInfo(effectiveDelay, isDaily, reportedRpm);
     }
 
-    private async Task<string> RunFallbackAsync(
+    private (string Alert, bool IsRateLimited) HandleFailureResponse(HttpStatusCode status, HttpResponseHeaders headers, string body)
+    {
+        int code = (int)status;
+        if (code == 429 || code == 402)
+        {
+            var rl = ParseRateLimitDetails(headers, body);
+            if (rl.ReportedRpmQuota > 0)
+                _budget.LowerLimit(rl.ReportedRpmQuota);
+
+            string alert = rl.IsDailyQuota || code == 402
+                ? $"⚠ {_provider} günlük/ücretli kota doldu — Ollama veya başka model seçin"
+                : $"⚠ {_provider} dakikalık kota doldu (429) — {rl.DelaySeconds} sn bekleniyor";
+
+            SetPause(TimeSpan.FromSeconds(rl.DelaySeconds), isRateLimited: true, alert);
+            StatusWarning?.Invoke(alert);
+            return (alert, true);
+        }
+
+        if (code is 401 or 403)
+        {
+            string alert = $"⚠ {_provider} API anahtarı geçersiz ({code})";
+            SetPause(TimeSpan.FromMinutes(1), isRateLimited: false, alert);
+            StatusWarning?.Invoke(alert);
+            return (alert, false);
+        }
+
+        if (code == 404)
+        {
+            string alert = $"⚠ {_provider} modeli ({_model}) bulunamadı (404) — 'Modelleri Tara' yapın";
+            SetPause(TimeSpan.FromSeconds(15), isRateLimited: false, alert);
+            StatusWarning?.Invoke(alert);
+            return (alert, false);
+        }
+
+        string genericAlert = $"⚠ {_provider} hata (HTTP {code})";
+        SetPause(TimeSpan.FromSeconds(10), isRateLimited: false, genericAlert);
+        StatusWarning?.Invoke(genericAlert);
+        return (genericAlert, false);
+    }
+
+    private void SetPause(TimeSpan duration, bool isRateLimited, string alertMessage)
+    {
+        _pausedUntil = DateTimeOffset.UtcNow + duration;
+        _pauseWasRateLimit = isRateLimited;
+        _pauseAlertMessage = alertMessage;
+    }
+
+    private void EmitAlert(string? message)
+    {
+        string? normalized = string.IsNullOrWhiteSpace(message) ? null : message.Trim();
+        if (string.Equals(_lastEmittedAlert, normalized, StringComparison.Ordinal))
+            return;
+
+        _lastEmittedAlert = normalized;
+        AlertChanged?.Invoke(normalized);
+    }
+
+    private async Task<TranslationOutcome> RunFallbackOutcomeAsync(
         string text,
         IReadOnlyList<TranslationContextLine> context,
         string? mediaTitle,
         IReadOnlyList<string>? characterNames,
+        bool isRateLimited,
+        string baseAlert,
         CancellationToken ct)
     {
-        if (_fallback is null)
-            return text;
+        if (_fallback is not null &&
+            !(_fallback is LocalMarianTranslator lm && !lm.CanTranslate(text)))
+        {
+            try
+            {
+                string fb = await _fallback.TranslateAsync(text, context, mediaTitle, characterNames, ct).ConfigureAwait(false);
+                if (!string.IsNullOrWhiteSpace(fb) && !TextMatch.IsUntranslatedEcho(text, fb))
+                {
+                    string backupAlert = $"{baseAlert} · Yerel yedek aktif";
+                    EmitAlert(backupAlert);
+                    return new TranslationOutcome(fb, IsFallback: true, IsRateLimited: isRateLimited, AlertMessage: backupAlert);
+                }
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch { }
+        }
 
-        return await _fallback.TranslateAsync(text, context, mediaTitle, characterNames, ct).ConfigureAwait(false);
+        EmitAlert(baseAlert);
+        return new TranslationOutcome("", IsFallback: true, IsRateLimited: isRateLimited, AlertMessage: baseAlert);
+    }
+
+    private static bool TryDetectBlockedResponse(AiProviderKind provider, string json, out string reason)
+    {
+        reason = "";
+        if (provider != AiProviderKind.Gemini)
+            return false;
+
+        try
+        {
+            var root = JsonNode.Parse(json);
+            string? promptBlock = root?["promptFeedback"]?["blockReason"]?.GetValue<string>();
+            if (!string.IsNullOrWhiteSpace(promptBlock))
+            {
+                reason = promptBlock;
+                return true;
+            }
+
+            string? finish = root?["candidates"]?.AsArray().FirstOrDefault()?["finishReason"]?.GetValue<string>();
+            if (finish is "SAFETY" or "PROHIBITED_CONTENT" or "RECITATION")
+            {
+                reason = finish;
+                return true;
+            }
+        }
+        catch { }
+
+        return false;
     }
 
     private static string TryExtractApiErrorMessage(string body)

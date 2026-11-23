@@ -57,6 +57,9 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     private bool _isHelpTabActive;
     private HelpGuideItem _selectedHelpGuide;
     private readonly Dictionary<string, Bitmap> _helpBitmapCache = [];
+    private string _activeQuotaAlert = "";
+    private string? _cachedLocalOllamaModel;
+    private Frame? _pendingSkippedFrame;
 
     public MainViewModel()
     {
@@ -87,6 +90,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         _ = StartServerSafeAsync();
         RefreshWindows();
         _ = RefreshModelsAsync();
+        _ = ProbeLocalOllamaModelAsync();
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -102,6 +106,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     public ObservableCollection<DiscoveredModel> AvailableModels { get; } = [];
     public ObservableCollection<string> Logs { get; } = [];
     public IReadOnlyList<AiProviderDescriptor> Providers => AiProviderCatalog.All;
+    public IReadOnlyList<SourceLanguageOption> SourceLanguages => SourceLanguageCatalog.All;
+    public IReadOnlyList<GameGenrePreset> GenrePresets => GameGenreCatalog.All;
     public IReadOnlyList<ConsoleKind> ConsoleTypes { get; } = [ConsoleKind.PlayStation5, ConsoleKind.PlayStation4Pro];
     public IReadOnlyList<SamsungTvModel> TvModels { get; } =
     [
@@ -373,8 +379,65 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     public string CustomInstruction
     {
         get => _settings.CustomInstruction;
-        set { _settings.CustomInstruction = value; SaveAndNotify(); }
+        set
+        {
+            _settings.CustomInstruction = value;
+            SaveAndNotify();
+        }
     }
+
+    public SourceLanguageOption SelectedSourceLanguage
+    {
+        get => SourceLanguageCatalog.Get(_settings.SourceLanguage);
+        set
+        {
+            if (value is null || string.Equals(_settings.SourceLanguage, value.Code, StringComparison.OrdinalIgnoreCase))
+                return;
+            _settings.SourceLanguage = value.Code;
+            if (_pipeline is not null) _pipeline.SourceLanguage = value.Code;
+            SaveAndNotify(nameof(SelectedSourceLanguage));
+        }
+    }
+
+    public GameGenrePreset SelectedGenrePreset
+    {
+        get => GameGenreCatalog.Get(_settings.GenrePresetId);
+        set
+        {
+            if (value is null || string.Equals(_settings.GenrePresetId, value.Id, StringComparison.OrdinalIgnoreCase))
+                return;
+            _settings.GenrePresetId = value.Id;
+            if (_pipeline is not null) _pipeline.GenrePresetId = value.Id;
+            SaveAndNotify(nameof(SelectedGenrePreset));
+        }
+    }
+
+    public bool StrictBottomCapture
+    {
+        get => _settings.StrictBottomCapture;
+        set
+        {
+            if (_settings.StrictBottomCapture == value) return;
+            _settings.StrictBottomCapture = value;
+            if (_pipeline is not null) _pipeline.StrictBottomOnly = value;
+            SaveAndNotify();
+        }
+    }
+
+    public string ActiveQuotaAlert
+    {
+        get => _activeQuotaAlert;
+        private set
+        {
+            string trimmed = value?.Trim() ?? "";
+            if (_activeQuotaAlert == trimmed) return;
+            _activeQuotaAlert = trimmed;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(HasActiveQuotaAlert));
+        }
+    }
+
+    public bool HasActiveQuotaAlert => !string.IsNullOrWhiteSpace(_activeQuotaAlert);
 
     public string MediaTitle
     {
@@ -1060,17 +1123,34 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         StopPipeline();
         LastSourceText = "";
         LastTranslatedText = "";
+        ActiveQuotaAlert = "";
+        _pendingSkippedFrame = null;
         _server.SendsToTv = Output != OutputTarget.PcOverlay;
         _server.SendStyle(_settings.Style);
+        _server.SendAlert(null);
 
         _ocrReader = CrossPlatformOcrFactory.CreateBestAvailable(_settings.SourceLanguage);
+        if (_ocrReader is WinRtOcrReader winRt &&
+            !_settings.SourceLanguage.Equals("auto", StringComparison.OrdinalIgnoreCase) &&
+            !winRt.RequestedLanguageMatched)
+        {
+            AppendLog($"Uyarı: Windows'ta '{_settings.SourceLanguage}' OCR dil paketi yüklü değil; '{winRt.ActiveLanguage}' ile okunuyor.");
+        }
+
         var translator = BuildTranslator();
         var cache = TranslationCache.ForEngine(EssvbPaths.CacheDir, translator.EngineId, _settings.SourceLanguage, "tr");
+        int scrubbed = cache.ScrubPoisonedEntries();
+        if (scrubbed > 0)
+            AppendLog($"Önbellekten {scrubbed} bozuk/çevrilmemiş İngilizce kayıt temizlendi.");
 
         _pipeline = new SubtitlePipeline(_ocrReader, translator, _server, new ReadScheduler(), cache)
         {
             MediaTitle = MediaTitle,
-            ShowSpeakerNames = true
+            ShowSpeakerNames = true,
+            SourceLanguage = _settings.SourceLanguage,
+            StrictBottomOnly = _settings.StrictBottomCapture,
+            GenrePresetId = _settings.GenrePresetId,
+            CacheSalt = translator is UniversalAiTranslator uai ? uai.CacheFingerprint : ""
         };
         _pipeline.OcrTextObserved += src => Dispatcher.UIThread.Post(() =>
         {
@@ -1175,8 +1255,17 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
 
     private void OnCapturedFrame(Frame frame)
     {
-        if (!_frameGate.TryEnter())
+        if (_frameGate.IsStuck())
+        {
+            Dispatcher.UIThread.Post(() => AppendLog("OCR zaman aşımı algılandı — kare kapısı sıfırlandı."));
+            _frameGate.Reset();
+        }
+
+        if (!_frameGate.TryEnter(out long token))
+        {
+            Volatile.Write(ref _pendingSkippedFrame, frame);
             return;
+        }
 
         _ = Task.Run(async () =>
         {
@@ -1190,7 +1279,10 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             }
             finally
             {
-                _frameGate.Exit();
+                _frameGate.Exit(token);
+                var skipped = Interlocked.Exchange(ref _pendingSkippedFrame, null);
+                if (skipped is not null && IsRunning)
+                    OnCapturedFrame(skipped);
             }
         });
     }
@@ -1198,6 +1290,9 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     private void StopPipeline()
     {
         IsRunning = false;
+        _pendingSkippedFrame = null;
+        ActiveQuotaAlert = "";
+        _server.SendAlert(null);
         OverlayVisibilityChanged?.Invoke(false);
 
         _psSession?.Dispose();
@@ -1224,16 +1319,59 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         if (_settings.Provider == AiProviderKind.LocalMarian)
             return _offlineFallback;
 
+        ITextTranslator fallback = _offlineFallback;
+        if (!AiProviderCatalog.Get(_settings.Provider).IsLocal &&
+            !string.IsNullOrWhiteSpace(_cachedLocalOllamaModel))
+        {
+            fallback = new UniversalAiTranslator(
+                AiProviderKind.Ollama,
+                model: _cachedLocalOllamaModel,
+                endpoint: AiProviderCatalog.Get(AiProviderKind.Ollama).DefaultEndpoint,
+                customInstruction: _settings.CustomInstruction,
+                fallback: _offlineFallback,
+                sourceLanguage: _settings.SourceLanguage,
+                genrePresetId: _settings.GenrePresetId,
+                userGlossary: UserGlossaryStore.Default,
+                maxRequestsPerMinute: 0);
+        }
+
         var ai = new UniversalAiTranslator(
             _settings.Provider,
             SettingsStore.GetApiKey(_settings.Provider),
             _settings.Model,
             _settings.Endpoint,
             _settings.CustomInstruction,
-            _offlineFallback);
+            fallback,
+            sourceLanguage: _settings.SourceLanguage,
+            genrePresetId: _settings.GenrePresetId,
+            userGlossary: UserGlossaryStore.Default);
 
         ai.StatusWarning += msg => Dispatcher.UIThread.Post(() => AppendLog(msg));
+        ai.AlertChanged += msg => Dispatcher.UIThread.Post(() =>
+        {
+            ActiveQuotaAlert = msg ?? "";
+            _server.SendAlert(msg);
+        });
         return ai;
+    }
+
+    private async Task ProbeLocalOllamaModelAsync()
+    {
+        try
+        {
+            var res = await ModelDiscoveryService.DiscoverModelsAsync(
+                AiProviderKind.Ollama,
+                AiProviderCatalog.Get(AiProviderKind.Ollama).DefaultEndpoint);
+            if (res.LiveQueried && res.Models.Count > 0)
+            {
+                var preferred = res.Models.FirstOrDefault(m => m.Id.StartsWith("gemma3:4b", StringComparison.OrdinalIgnoreCase))
+                                ?? res.Models[0];
+                _cachedLocalOllamaModel = preferred.Id;
+                Dispatcher.UIThread.Post(() =>
+                    AppendLog($"Akıllı yedek hazır: Bulut kotası dolarsa yerel Ollama ({preferred.Id}) devralacak."));
+            }
+        }
+        catch { }
     }
 
     private static string GetPreferredLanIp(string remoteHost)

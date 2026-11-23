@@ -18,7 +18,9 @@ public sealed class EssvbSettings
     public string Endpoint { get; set; } = "http://127.0.0.1:11434/v1";
     public string CustomInstruction { get; set; } = "";
     public string MediaTitle { get; set; } = "";
-    public string SourceLanguage { get; set; } = "en";
+    public string SourceLanguage { get; set; } = "auto";
+    public string GenrePresetId { get; set; } = "general";
+    public bool StrictBottomCapture { get; set; } = true;
     public bool MediaUseAudioLoopback { get; set; }
     public bool AudioUseGemini { get; set; } = true;
     public string WhisperCliPath { get; set; } = "";

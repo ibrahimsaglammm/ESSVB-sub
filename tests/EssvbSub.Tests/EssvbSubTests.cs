@@ -386,24 +386,154 @@ public sealed class EssvbSubTests
         var ytReading = reader.ReadLines(ytStrip, deep: false);
         Assert.Contains("HELLO", ytReading.Text, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("TITLE", ytReading.Text, StringComparison.OrdinalIgnoreCase);
+        Assert.True(ytReading.Box.HasValue);
+        Assert.NotNull(ytReading.Lines[0].Words);
+        Assert.True(ytReading.Lines[0].Words!.Count >= 2);
     }
 
     [Fact]
     public void AppInfo_ParsesSemanticVersionAndShortCommitCorrectly()
     {
-        Assert.Equal("1.3.0", AppInfo.ParseSemanticVersion("1.3.0+8b56851f2938178939"));
-        Assert.Equal("8b56851", AppInfo.ParseShortCommit("1.3.0+8b56851f2938178939"));
-        Assert.Equal("v1.3.0 (8b56851)", AppInfo.FormatVersionLabel("1.3.0+8b56851f2938178939"));
+        Assert.Equal("1.4.0", AppInfo.ParseSemanticVersion("1.4.0+8b56851f2938178939"));
+        Assert.Equal("8b56851", AppInfo.ParseShortCommit("1.4.0+8b56851f2938178939"));
+        Assert.Equal("v1.4.0 (8b56851)", AppInfo.FormatVersionLabel("1.4.0+8b56851f2938178939"));
 
-        Assert.Equal("1.3.0", AppInfo.ParseSemanticVersion("1.3.0"));
-        Assert.Equal(string.Empty, AppInfo.ParseShortCommit("1.3.0"));
-        Assert.Equal("v1.3.0", AppInfo.FormatVersionLabel("1.3.0"));
+        Assert.Equal("1.4.0", AppInfo.ParseSemanticVersion("1.4.0"));
+        Assert.Equal(string.Empty, AppInfo.ParseShortCommit("1.4.0"));
+        Assert.Equal("v1.4.0", AppInfo.FormatVersionLabel("1.4.0"));
 
-        Assert.Equal("1.3.0", AppInfo.ParseSemanticVersion(null));
-        Assert.Equal("v1.3.0", AppInfo.FormatVersionLabel(null));
+        Assert.Equal("1.4.0", AppInfo.ParseSemanticVersion(null));
+        Assert.Equal("v1.4.0", AppInfo.FormatVersionLabel(null));
 
-        Assert.Equal("1.3.0", AppInfo.Version);
-        Assert.Equal("v1.3.0", AppInfo.VersionBadge);
+        Assert.Equal("1.4.0", AppInfo.Version);
+        Assert.Equal("v1.4.0", AppInfo.VersionBadge);
+    }
+
+    [Fact]
+    public void TranslationCache_AutoScrubsPoisonedUntranslatedEntriesOnLoadAndRejectsStore()
+    {
+        string tempDir = Path.Combine(Path.GetTempPath(), $"essvb-scrub-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            string cachePath = Path.Combine(tempDir, "test-cache.jsonl");
+            File.WriteAllLines(cachePath,
+            [
+                JsonSerializer.Serialize(new[] { "Stay close, boy.", "Yakınımda kal, oğlum." }),
+                JsonSerializer.Serialize(new[] { "Okay, so we're comin' up on our spot, boys!", "Okay, so we're comin' up on our spot, boys!" }),
+                JsonSerializer.Serialize(new[] { "Kenton: Let's go right now.", "Kenton: Let's go right now." })
+            ]);
+
+            var cache = new TranslationCache(cachePath, engineId: "gemini:gemini-3.5-flash-lite");
+            int scrubbed = cache.ScrubPoisonedEntries();
+            Assert.Equal(2, scrubbed);
+            Assert.Equal(1, cache.Count);
+            Assert.True(cache.TryGet("Stay close, boy.", out var validTr));
+            Assert.Equal("Yakınımda kal, oğlum.", validTr);
+            Assert.False(cache.TryGet("Okay, so we're comin' up on our spot, boys!", out _));
+
+            // Attempting to store an untranslated echo must be rejected
+            cache.Store("I just put a hole in the boat.", "I just put a hole in the boat.");
+            Assert.False(cache.TryGet("I just put a hole in the boat.", out _));
+            Assert.Equal(1, cache.Count);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SubtitleRegionFilter_KeepsBottomCenterSubtitleAndDropsLeftRightTopHudAndSigns()
+    {
+        var filter = new SubtitleRegionFilter();
+        var reading = new Reading(
+        [
+            new TextLine("HP 100%", new TextBox(0.02, 0.05, 0.14, 0.10)),
+            new TextLine("MAP NORTH", new TextBox(0.84, 0.04, 0.97, 0.10)),
+            new TextLine("CAUTION MIND YOUR STEP", new TextBox(0.32, 0.12, 0.68, 0.17)),
+            new TextLine("PRESS [E] TO OPEN", new TextBox(0.40, 0.48, 0.60, 0.53)),
+            new TextLine("Kenton: We should be down there soon.", new TextBox(0.24, 0.78, 0.76, 0.86))
+        ]);
+
+        var kept = filter.Filter(reading, strictBottomCenter: true, nowMs: 1000, sourceLanguage: "en");
+        Assert.Single(kept.Lines);
+        Assert.Equal("Kenton: We should be down there soon.", kept.Text);
+    }
+
+    [Fact]
+    public void TextMatch_DeduplicatesNoisyOcrRereads_PreservesAddsMeaning_AndDetectsUntranslatedEcho()
+    {
+        // High word overlap catches noisy OCR jitter on the same line
+        string n1 = TextMatch.Normalize("Okay, so we're comin' up on our spot, boys!");
+        string n2 = TextMatch.Normalize("Okay, so we're cornin' up on our spöft, boys!");
+        Assert.True(TextMatch.IsSameSubtitle(n1, n2));
+
+        // Negation flip MUST NOT be treated as duplicate
+        string pos = TextMatch.Normalize("I can help you now.");
+        string neg = TextMatch.Normalize("I can't help you now.");
+        Assert.True(TextMatch.AddsMeaning(pos, neg));
+        Assert.False(TextMatch.IsSameSubtitle(pos, neg));
+
+        // Untranslated echo vs real Turkish translation
+        Assert.True(TextMatch.IsUntranslatedEcho("Wait a second, we need to go now.", "Wait a second, we need to go now."));
+        Assert.False(TextMatch.IsUntranslatedEcho("Wait a second, we need to go now.", "Bir saniye bekle, şimdi gitmemiz gerek."));
+    }
+
+    [Fact]
+    public async Task UniversalAiTranslator_IncludesGeminiSafetySettings_ParsesRetryDelayAndQuota_AndMultiLangPrompt()
+    {
+        var tr = new UniversalAiTranslator(
+            AiProviderKind.Gemini,
+            apiKey: "test-key",
+            model: "gemini-3.5-flash-lite",
+            sourceLanguage: "ja",
+            genrePresetId: "rpg_fantasy");
+
+        string sys = tr.BuildSystemPrompt();
+        Assert.Contains("Japanese", sys);
+        Assert.Contains("RPG", sys);
+
+        using var req = tr.BuildHttpRequest("Let's upgrade our Skill Tree before facing Kratos.", [], "God of War", null);
+        string body = await req.Content!.ReadAsStringAsync();
+        using var doc = JsonDocument.Parse(body);
+        var safety = doc.RootElement.GetProperty("safetySettings");
+        Assert.Equal(5, safety.GetArrayLength());
+        Assert.Equal("BLOCK_NONE", safety[0].GetProperty("threshold").GetString());
+
+        string userText = doc.RootElement.GetProperty("contents")[0].GetProperty("parts")[0].GetProperty("text").GetString()!;
+        Assert.Contains("Skill Tree = Yetenek Ağacı", userText);
+
+        const string errJson = """
+            {
+              "error": {
+                "code": 429,
+                "message": "Quota exceeded.",
+                "details": [
+                  { "@type": "type.googleapis.com/google.rpc.QuotaFailure", "violations": [{ "quotaId": "GenerateRequestsPerMinutePerProjectPerModel", "quotaValue": "15" }] },
+                  { "@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": "23.4s" }
+                ]
+              }
+            }
+            """;
+        var rl = UniversalAiTranslator.ParseRateLimitDetails(null, errJson);
+        Assert.Equal(24, rl.DelaySeconds);
+        Assert.False(rl.IsDailyQuota);
+        Assert.Equal(15, rl.ReportedRpmQuota);
+    }
+
+    [Fact]
+    public void GameGenreCatalog_MatchesTermsForLineAndSupportsMultiLanguage()
+    {
+        var preset = GameGenreCatalog.Get("action_street");
+        var matched = GameGenreCatalog.MatchTermsForLine(preset, "The Ripperdoc told V to lay low until the Wanted Level drops.");
+        Assert.Contains(matched.Terms, t => t.Source == "Ripperdoc" && t.Target == "Siber Doktor");
+        Assert.Contains(matched.Terms, t => t.Source == "Wanted Level" && t.Target == "Aranma Seviyesi");
+        Assert.Contains("V", matched.KeepNames);
+
+        Assert.True(SourceLanguageCatalog.All.Count >= 15);
+        Assert.Equal("JA", SourceLanguageCatalog.Get("ja").DeepLCode);
+        Assert.Equal("kor", SourceLanguageCatalog.Get("ko").TesseractCode);
     }
 
     private static Frame RenderBitmapTextFrame(string text, int scale, int width, int height)

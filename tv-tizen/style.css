@@ -165,3 +165,20 @@ body.band #subtitle-cover { border-radius: 0; }
   color: #F3EEE4;
 }
 #pairing.hidden { display: none; }
+
+#status-alert {
+  position: absolute;
+  right: 4%;
+  bottom: 2.2%;
+  max-width: 72%;
+  z-index: 25;
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(248, 113, 113, 0.72);
+  background: rgba(22, 9, 12, 0.88);
+  color: #FF5C6C;
+  font-size: 22px;
+  font-weight: 600;
+  text-shadow: 0 1px 3px #000;
+}
+#status-alert.hidden { display: none; }

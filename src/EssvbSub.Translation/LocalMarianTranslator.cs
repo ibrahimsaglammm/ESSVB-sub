@@ -11,6 +11,7 @@ namespace EssvbSub.Translation;
 /// <summary>
 /// Lightweight offline sentence translator supporting an optional local CTranslate2 OPUS-MT worker process
 /// (with zero network calls) and built-in game UI fallback dictionary.
+/// Throws when no local dictionary match or CTranslate2 model exists instead of silently echoing English.
 /// </summary>
 public sealed class LocalMarianTranslator : ITextTranslator, IDisposable
 {
@@ -67,6 +68,15 @@ public sealed class LocalMarianTranslator : ITextTranslator, IDisposable
 
     public bool IsReady => true;
 
+    public bool CanTranslate(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return false;
+
+        string trimmed = text.Trim();
+        return BuiltInPhrases.ContainsKey(trimmed) || (HasCTranslateRuntime && !_workerFailed);
+    }
+
     public Task<string> TranslateAsync(
         string text,
         IReadOnlyList<TranslationContextLine> context,
@@ -83,12 +93,9 @@ public sealed class LocalMarianTranslator : ITextTranslator, IDisposable
             return Task.FromResult(exact);
 
         if (HasCTranslateRuntime && !_workerFailed)
-        {
             return Task.Run(() => TranslateWithWorker(trimmed, cancellationToken), cancellationToken);
-        }
 
-        // Offline graceful fallback when no CTranslate2 worker or Ollama is configured
-        return Task.FromResult(trimmed);
+        throw new InvalidOperationException("Çevrimdışı CTranslate2 modeli kurulu değil.");
     }
 
     private string TranslateWithWorker(string text, CancellationToken ct)
@@ -122,7 +129,7 @@ public sealed class LocalMarianTranslator : ITextTranslator, IDisposable
                 StopWorker();
             }
 
-            return text;
+            throw new InvalidOperationException("Çevrimdışı CTranslate2 işçisi yanıt vermedi.");
         }
     }
 

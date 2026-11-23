@@ -22,22 +22,25 @@ public readonly record struct StabilizerAction(StabilizerActionKind Kind, string
 
 /// <summary>
 /// Filters frame-by-frame OCR output to eliminate typewriter flicker, bright-background OCR dropouts,
-/// and overlapping fade noise before triggering translation.
+/// recent duplicate variants, and overlapping fade noise before triggering translation.
 /// </summary>
 public sealed class SubtitleStabilizer
 {
     public const int DefaultClearAfterMs = 750;
     public const int HoldUnchangedMs = 3800;
     public const int RestoreWithinMs = 1500;
-    public const int GarbledStableMs = 650;
-    public const int RetryAfterMs = 1000;
+    public const int GarbledStableMs = 700;
+    public const int RetryAfterMs = 1200;
+    public const int RecentDedupWindowMs = 6000;
     private const int HistoryCapacity = 6;
+    private const int RecentSentCapacity = 4;
 
     private readonly double _similarity;
     private readonly int _stableFrames;
     private readonly int _clearAfterMs;
     private readonly Func<long> _clock;
     private readonly List<(string Normalized, string Raw, long LeftAt)> _history = [];
+    private readonly List<(string Normalized, string Raw, long SentAt)> _recentSent = [];
 
     private string _candidateNorm = "";
     private string _candidateRaw = "";
@@ -68,6 +71,8 @@ public sealed class SubtitleStabilizer
         _clock = clock ?? (() => Environment.TickCount64);
     }
 
+    public string SourceLanguage { get; set; } = "auto";
+
     public StabilizerAction Feed(string rawText, byte[]? signature = null, TextBox? box = null)
     {
         long now = _clock();
@@ -79,11 +84,15 @@ public sealed class SubtitleStabilizer
         _emptySince = null;
         _goneSince = null;
 
-        if (TextMatch.Similarity(norm, _candidateNorm) >= _similarity)
+        if (TextMatch.Similarity(norm, _candidateNorm) >= _similarity ||
+            TextMatch.IsSameSubtitle(norm, _candidateNorm))
         {
             _candidateCount++;
-            if (rawText.Trim().Length > _candidateRaw.Length && OcrNoise.Score(rawText) >= OcrNoise.Score(_candidateRaw))
+            if (OcrNoise.Score(rawText) > OcrNoise.Score(_candidateRaw) ||
+                (rawText.Trim().Length > _candidateRaw.Length && OcrNoise.Score(rawText) >= OcrNoise.Score(_candidateRaw)))
+            {
                 _candidateRaw = rawText.Trim();
+            }
         }
         else
         {
@@ -101,7 +110,7 @@ public sealed class SubtitleStabilizer
             return StabilizerAction.None;
         }
 
-        bool garbled = OcrNoise.LooksGarbled(rawText);
+        bool garbled = OcrNoise.LooksGarbled(rawText, SourceLanguage);
         bool ready = garbled
             ? _candidateCount >= _stableFrames && (now - _candidateSince) >= GarbledStableMs
             : _candidateCount >= _stableFrames || (EndsSentence(rawText) && OcrNoise.LooksClean(rawText));
@@ -128,15 +137,29 @@ public sealed class SubtitleStabilizer
             return StabilizerAction.Restore(restored.Raw);
         }
 
+        // Suppress duplicate flickering variants of a recently sent subtitle unless meaning changed
+        _recentSent.RemoveAll(r => (now - r.SentAt) > RecentDedupWindowMs);
+        foreach (var prev in _recentSent)
+        {
+            if (TextMatch.IsSameSubtitle(norm, prev.Normalized) &&
+                !TextMatch.AddsMeaning(prev.Normalized, norm) &&
+                !TextMatch.IsGrowth(prev.Normalized, norm))
+            {
+                Remember(signature, box);
+                return StabilizerAction.None;
+            }
+        }
+
         if (_forgottenNorm.Length > 0 && now < _retryAt && TextMatch.IsSameSubtitle(norm, _forgottenNorm))
             return StabilizerAction.None;
 
-        bool isExtension = _sentRaw.Length > 0 && _candidateRaw.StartsWith(_sentRaw, StringComparison.OrdinalIgnoreCase);
+        bool isExtension = _sentRaw.Length > 0 && TextMatch.IsGrowth(_sentNorm, norm);
         ArchiveActive(now);
         _forgottenNorm = "";
         _sentRaw = _candidateRaw;
         _sentNorm = TextMatch.Normalize(_sentRaw);
         _sentReads = 1;
+        RecordRecentSent(_sentNorm, _sentRaw, now);
         Remember(signature, box);
         return StabilizerAction.Translate(_sentRaw, isRevision: isExtension);
     }
@@ -190,13 +213,16 @@ public sealed class SubtitleStabilizer
             return false;
         }
 
-        // Upgrade if OCR recovered more words or higher clean score (e.g., speaker name appeared)
-        if (OcrNoise.Score(trimmed) > OcrNoise.Score(_sentRaw) + 2 ||
-            (SpeakerPrefix.Parse(trimmed) is not null && SpeakerPrefix.Parse(_sentRaw) is null))
+        bool meaningful = TextMatch.AddsMeaning(_sentNorm, norm);
+        bool significantFix = _candidateCount >= _stableFrames &&
+                              OcrNoise.Score(trimmed) > OcrNoise.Score(_sentRaw) + 4;
+
+        if (meaningful || significantFix)
         {
             _sentRaw = trimmed;
             _sentNorm = norm;
             _sentReads = 0; // Revise at most once per active line
+            RecordRecentSent(_sentNorm, _sentRaw, _clock());
             revised = trimmed;
             return true;
         }
@@ -209,6 +235,8 @@ public sealed class SubtitleStabilizer
         if (_sentNorm.Length > 0)
         {
             _forgottenNorm = _sentNorm;
+            string activeNorm = _sentNorm;
+            _recentSent.RemoveAll(r => r.Normalized == activeNorm);
             _clearPending = true;
         }
         _retryAt = _clock() + RetryAfterMs;
@@ -227,6 +255,7 @@ public sealed class SubtitleStabilizer
         _goneSince = null;
         _lastSeen = null;
         _history.Clear();
+        _recentSent.Clear();
         _forgottenNorm = "";
         bool shouldClear = _sentNorm.Length > 0 || _clearPending;
         _sentNorm = "";
@@ -234,6 +263,15 @@ public sealed class SubtitleStabilizer
         _sentReads = 0;
         _clearPending = false;
         return shouldClear ? StabilizerAction.Clear : StabilizerAction.None;
+    }
+
+    private void RecordRecentSent(string norm, string raw, long now)
+    {
+        if (norm.Length == 0) return;
+        _recentSent.RemoveAll(r => r.Normalized == norm);
+        _recentSent.Add((norm, raw, now));
+        while (_recentSent.Count > RecentSentCapacity)
+            _recentSent.RemoveAt(0);
     }
 
     private void ArchiveActive(long now)

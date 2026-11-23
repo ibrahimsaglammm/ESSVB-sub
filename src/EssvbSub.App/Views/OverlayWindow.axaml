@@ -50,9 +50,26 @@
       </Grid>
     </Border>
 
-    <!-- Subtitle Content Stack -->
-    <Grid x:Name="ContentHost" VerticalAlignment="Bottom" Margin="16,32,16,12" IsHitTestVisible="False">
-      <StackPanel x:Name="LinesHost" Spacing="8" HorizontalAlignment="Center" VerticalAlignment="Bottom" />
+    <!-- Subtitle Content Stack + Persistent Small Red Quota/Error Pill -->
+    <Grid x:Name="ContentHost" RowDefinitions="*,Auto" VerticalAlignment="Bottom" Margin="16,32,16,8" IsHitTestVisible="False">
+      <StackPanel x:Name="LinesHost" Grid.Row="0" Spacing="8" HorizontalAlignment="Center" VerticalAlignment="Bottom" />
+      <Border x:Name="AlertBadge"
+              Grid.Row="1"
+              IsVisible="False"
+              HorizontalAlignment="Center"
+              Margin="0,6,0,0"
+              Padding="10,4"
+              CornerRadius="6"
+              Background="#D816090C"
+              BorderBrush="#BBF87171"
+              BorderThickness="1">
+        <TextBlock x:Name="AlertText"
+                   FontSize="13"
+                   FontWeight="SemiBold"
+                   Foreground="#FF5C6C"
+                   TextWrapping="Wrap"
+                   TextAlignment="Center" />
+      </Border>
     </Grid>
   </Grid>
 </Window>

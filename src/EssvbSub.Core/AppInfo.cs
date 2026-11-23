@@ -14,7 +14,7 @@ public static class AppInfo
 {
     public const string Brand = "ESSVB";
     public const string AppName = "ESSVB-sub";
-    public const string FallbackVersion = "1.3.0";
+    public const string FallbackVersion = "1.4.0";
     public const string GitHubRepoUrl = "https://github.com/ibrahimsaglammm/ESSVB-sub";
     public const string GitHubReleasesUrl = "https://github.com/ibrahimsaglammm/ESSVB-sub/releases/latest";
     public const string LicenseSummary = "ESSVB Özel Mülkiyet Lisansı (%100 Yerel • Sıfır Telemetri)";

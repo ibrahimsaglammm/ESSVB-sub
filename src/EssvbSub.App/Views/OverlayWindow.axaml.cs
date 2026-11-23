@@ -35,6 +35,7 @@ public partial class OverlayWindow : Window
     private bool _clickThrough = true;
     private bool _editMode;
     private bool _applyingBounds;
+    private string _activeAlertText = "";
     private SubtitleStyle _style = new();
 
     public event Action<double, double, double, double>? BoundsChangedByUser;
@@ -82,6 +83,7 @@ public partial class OverlayWindow : Window
     {
         _style = style;
         _stack.StackPrevious = style.StackPrevious;
+        ApplyAlertVisuals();
         RefreshUi();
     }
 
@@ -140,8 +142,29 @@ public partial class OverlayWindow : Window
             case SubtitleEventKind.Clear:
                 _stack.Clear(now);
                 break;
+
+            case SubtitleEventKind.StatusAlert:
+                _activeAlertText = ev.Text?.Trim() ?? "";
+                ApplyAlertVisuals();
+                return;
         }
         RefreshUi();
+    }
+
+    private void ApplyAlertVisuals()
+    {
+        bool hasAlert = !string.IsNullOrWhiteSpace(_activeAlertText);
+        AlertBadge.IsVisible = hasAlert;
+        AlertText.Text = _activeAlertText;
+        AlertText.FontSize = Math.Clamp(Math.Round(_style.FontSize * 0.30), 12, 16);
+        AlertText.Effect ??= new DropShadowEffect
+        {
+            Color = Colors.Black,
+            BlurRadius = 3,
+            OffsetX = 0,
+            OffsetY = 1,
+            Opacity = 0.95
+        };
     }
 
     private void OnResizeGripPressed(object? sender, PointerPressedEventArgs e)

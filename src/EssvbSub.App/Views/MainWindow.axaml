@@ -50,19 +50,26 @@
       </Grid>
     </Border>
 
-    <!-- TV Pairing Approval Banner -->
-    <Border Grid.Row="1" Classes="card" BorderBrush="#F5B83D" BorderThickness="1.5" Margin="0,0,0,12"
-            IsVisible="{Binding HasPendingTvTicket}">
-      <Grid ColumnDefinitions="*,Auto,Auto">
-        <StackPanel VerticalAlignment="Center">
-          <TextBlock Text="Samsung TV Eşleştirme İsteği" FontWeight="Bold" Foreground="#F5B83D" />
-          <TextBlock FontSize="13" Foreground="#F3EEE4"
-                     Text="{Binding PendingTvTicket.PinCode, StringFormat='TV ekranındaki kod: {0} — Onaylıyor musunuz?'}" />
-        </StackPanel>
-        <Button Grid.Column="1" Classes="primary" Content="Onayla" Click="OnApproveTvPairing" Margin="10,0,8,0" />
-        <Button Grid.Column="2" Classes="secondary" Content="Reddet" Click="OnRejectTvPairing" />
-      </Grid>
-    </Border>
+    <!-- Persistent Quota / Error + TV Pairing Banners -->
+    <StackPanel Grid.Row="1" Spacing="8" Margin="0,0,0,10">
+      <Border Classes="card" Background="#221015" BorderBrush="#EF4444" BorderThickness="1.2" Padding="12,8"
+              IsVisible="{Binding HasActiveQuotaAlert}">
+        <TextBlock Text="{Binding ActiveQuotaAlert}" FontSize="12.5" FontWeight="SemiBold" Foreground="#FF6B7A" TextWrapping="Wrap" />
+      </Border>
+
+      <Border Classes="card" BorderBrush="#F5B83D" BorderThickness="1.5"
+              IsVisible="{Binding HasPendingTvTicket}">
+        <Grid ColumnDefinitions="*,Auto,Auto">
+          <StackPanel VerticalAlignment="Center">
+            <TextBlock Text="Samsung TV Eşleştirme İsteği" FontWeight="Bold" Foreground="#F5B83D" />
+            <TextBlock FontSize="13" Foreground="#F3EEE4"
+                       Text="{Binding PendingTvTicket.PinCode, StringFormat='TV ekranındaki kod: {0} — Onaylıyor musunuz?'}" />
+          </StackPanel>
+          <Button Grid.Column="1" Classes="primary" Content="Onayla" Click="OnApproveTvPairing" Margin="10,0,8,0" />
+          <Button Grid.Column="2" Classes="secondary" Content="Reddet" Click="OnRejectTvPairing" />
+        </Grid>
+      </Border>
+    </StackPanel>
 
     <!-- Main Two-Column Content -->
     <ScrollViewer Grid.Row="2" IsVisible="{Binding IsWorkspaceVisible}">
@@ -149,8 +156,10 @@
               <Grid ColumnDefinitions="*,Auto,Auto">
                 <TextBlock Text="{Binding RegionSummary}" VerticalAlignment="Center" FontSize="12" Foreground="#9CA3AF" Margin="0,0,8,0" />
                 <Button Grid.Column="1" Classes="secondary" Content="Altyazı Alanını Seç (ROI)" Click="OnSelectRegion" Margin="0,0,6,0" />
-                <Button Grid.Column="2" Classes="secondary" Content="Bölgeyi Sıfırla" Click="OnClearRegion" />
+                <Button Grid.Column="2" Classes="secondary" Content="Varsayılan Alt Şerit" Click="OnClearRegion" />
               </Grid>
+              <CheckBox IsChecked="{Binding StrictBottomCapture}"
+                        Content="Sadece Alt Şeridi Yakala (Sol / Sağ / Üst Yazıları Yoksay)" />
               <TextBlock Text="{Binding CaptureSourceSummary}" FontSize="11.5" Foreground="#34D399" TextTrimming="CharacterEllipsis" />
             </StackPanel>
           </Border>
@@ -179,7 +188,7 @@
           <Border Classes="card">
             <StackPanel Spacing="10">
               <TextBlock Text="Çeviri Motoru (Yerel &amp; Yüksek AI)" FontSize="16" FontWeight="Bold" Foreground="#F5B83D" />
-              <Grid ColumnDefinitions="130,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto">
+              <Grid ColumnDefinitions="130,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto">
                 <TextBlock Grid.Row="0" Grid.Column="0" Text="Sağlayıcı" VerticalAlignment="Center" Foreground="#9CA3AF" Margin="0,0,8,8" />
                 <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Providers}" SelectedItem="{Binding SelectedProvider}" HorizontalAlignment="Stretch" Margin="0,0,0,8">
                   <ComboBox.ItemTemplate>
@@ -207,11 +216,17 @@
                 <TextBlock Grid.Row="3" Grid.Column="0" Text="API Anahtarı" VerticalAlignment="Center" Foreground="#9CA3AF" IsVisible="{Binding ShowApiKeyBox}" Margin="0,0,8,8" />
                 <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding ApiKeyInput}" PasswordChar="•" IsVisible="{Binding ShowApiKeyBox}" Watermark="Yerel şifreli kasada saklanır" Margin="0,0,0,8" />
 
-                <TextBlock Grid.Row="4" Grid.Column="0" Text="Oyun / Film Adı" VerticalAlignment="Center" Foreground="#9CA3AF" Margin="0,0,8,8" />
-                <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding MediaTitle}" Watermark="Bağlam için (ör. God of War, Severance)" Margin="0,0,0,8" />
+                <TextBlock Grid.Row="4" Grid.Column="0" Text="Kaynak Dil" VerticalAlignment="Center" Foreground="#9CA3AF" Margin="0,0,8,8" />
+                <ComboBox Grid.Row="4" Grid.Column="1" ItemsSource="{Binding SourceLanguages}" SelectedItem="{Binding SelectedSourceLanguage}" HorizontalAlignment="Stretch" Margin="0,0,0,8" />
 
-                <TextBlock Grid.Row="5" Grid.Column="0" Text="Ek Talimat" VerticalAlignment="Center" Foreground="#9CA3AF" Margin="0,0,8,0" />
-                <TextBox Grid.Row="5" Grid.Column="1" Text="{Binding CustomInstruction}" Watermark="Örn: Argo ve küfürleri yumuşatmadan çevir." />
+                <TextBlock Grid.Row="5" Grid.Column="0" Text="Oyun / İçerik Türü" VerticalAlignment="Center" Foreground="#9CA3AF" Margin="0,0,8,8" />
+                <ComboBox Grid.Row="5" Grid.Column="1" ItemsSource="{Binding GenrePresets}" SelectedItem="{Binding SelectedGenrePreset}" HorizontalAlignment="Stretch" Margin="0,0,0,8" />
+
+                <TextBlock Grid.Row="6" Grid.Column="0" Text="Oyun / Film Adı" VerticalAlignment="Center" Foreground="#9CA3AF" Margin="0,0,8,8" />
+                <TextBox Grid.Row="6" Grid.Column="1" Text="{Binding MediaTitle}" Watermark="Bağlam için (ör. God of War, Severance)" Margin="0,0,0,8" />
+
+                <TextBlock Grid.Row="7" Grid.Column="0" Text="Ek Talimat" VerticalAlignment="Center" Foreground="#9CA3AF" Margin="0,0,8,0" />
+                <TextBox Grid.Row="7" Grid.Column="1" Text="{Binding CustomInstruction}" Watermark="Örn: Argo ve küfürleri yumuşatmadan çevir." />
               </Grid>
 
               <Grid ColumnDefinitions="Auto,*" Margin="0,4,0,0">
@@ -382,15 +397,15 @@
 
           <Border Grid.Column="1" Classes="card" Margin="7,0,0,0">
             <StackPanel Spacing="6">
-              <TextBlock Text="v1.3.0 Yenilikleri &amp; Doğrulama" FontSize="15" FontWeight="Bold" Foreground="#F5B83D" />
+              <TextBlock Text="v1.4.0 Yenilikleri &amp; Doğrulama" FontSize="15" FontWeight="Bold" Foreground="#F5B83D" />
               <TextBlock FontSize="12.5" Foreground="#34D399" TextWrapping="Wrap"
-                         Text="• Yeni: Windows 11 için kurulumsuz tek dosya .exe (.NET gerektirmez, gömülü ESSVB ikonu, Rust motoru ve 5 rehber tek pakette)." />
+                         Text="• Yeni: Çoklu Kaynak Dil (Otomatik + 14 dil) &amp; 8 Oyun Türü Kütüphanesi + özel kullanıcı sözlükleri (glossaries/)." />
               <TextBlock FontSize="12.5" Foreground="#F3EEE4" TextWrapping="Wrap"
-                         Text="• Uygulama içi 'Yardım &amp; Hakkında' sekmesi — 5 adım resimli rehber + canlı sürüm/commit doğrulama." />
+                         Text="• Akıllı Alt Şerit Yakalama: WinRT OCR koordinatlarıyla sol/sağ/üst HUD yazıları ve sabit tabelalar elenir." />
               <TextBlock FontSize="12.5" Foreground="#F3EEE4" TextWrapping="Wrap"
-                         Text="• Rust Hızlandırma (essvb_fast.dll): SIMD + LTO OCR ön-işleme ve değişim algılama (~4.5 ms/kare)." />
+                         Text="• Sıfır Önbellek Zehirlenmesi &amp; Kalıcı Kırmızı Kota Uyarısı: 429 anında otomatik Ollama yedeği + küçük kırmızı uyarı bandı." />
               <TextBlock FontSize="12.5" Foreground="#F3EEE4" TextWrapping="Wrap"
-                         Text="• Gemini 3.5 Flash Lite (F/P), Ollama native /api/chat (think: false) ve sürüklenip %0–%100 karartılabilen overlay." />
+                         Text="• Gemini safetySettings (BLOCK_NONE), Retry-After uyumu ve Windows 11 kurulumsuz tek dosya .exe." />
             </StackPanel>
           </Border>
         </Grid>
@@ -402,7 +417,7 @@
     <Border Grid.Row="3" Classes="card" Padding="14,10" Margin="0,12,0,0">
       <Grid ColumnDefinitions="*,Auto">
         <StackPanel Spacing="2" Margin="0,0,12,0">
-          <TextBlock Text="{Binding LastSourceText, StringFormat='EN: {0}'}" FontSize="12" Foreground="#9CA3AF" TextTrimming="CharacterEllipsis" />
+          <TextBlock Text="{Binding LastSourceText, StringFormat='KAYNAK: {0}'}" FontSize="12" Foreground="#9CA3AF" TextTrimming="CharacterEllipsis" />
           <TextBlock Text="{Binding LastTranslatedText, StringFormat='TR: {0}'}" FontSize="15" FontWeight="Bold" Foreground="#F5B83D" TextTrimming="CharacterEllipsis" />
         </StackPanel>
         <TextBlock Grid.Column="1" Text="{Binding MetricsMessage}" VerticalAlignment="Center" FontSize="12" Foreground="#38BDF8" />

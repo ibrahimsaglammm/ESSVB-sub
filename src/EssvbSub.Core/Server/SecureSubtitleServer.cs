@@ -210,6 +210,13 @@ public sealed class SecureSubtitleServer : ISubtitleSink, IDisposable
         EventBroadcast?.Invoke(new SubtitleEvent(SubtitleEventKind.Style));
     }
 
+    public void SendAlert(string? message)
+    {
+        string text = message?.Trim() ?? "";
+        BroadcastFrame("alert", new Dictionary<string, object> { ["text"] = text }, subtitleOnly: true);
+        EventBroadcast?.Invoke(new SubtitleEvent(SubtitleEventKind.StatusAlert, text));
+    }
+
     public void Stop()
     {
         List<ClientConnection> closing;

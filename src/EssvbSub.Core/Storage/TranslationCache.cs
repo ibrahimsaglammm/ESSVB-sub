@@ -4,11 +4,13 @@ using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using EssvbSub.Core.Pipeline;
 
 namespace EssvbSub.Core.Storage;
 
 /// <summary>
 /// Persistent per-engine JSONL LRU cache so repeated lines translate in 0 ms without extra API/compute usage.
+/// Rejects untranslated echo / fallback entries on write and auto-scrubs poisoned entries on load.
 /// </summary>
 public sealed class TranslationCache
 {
@@ -23,6 +25,7 @@ public sealed class TranslationCache
     private long _tick;
     private bool _loaded;
     private int _fileLines;
+    private int _scrubbedOnLoad;
 
     public TranslationCache(string? filePath = null, int limit = DefaultLimit, string? engineId = null)
     {
@@ -46,12 +49,40 @@ public sealed class TranslationCache
         get { lock (_gate) { EnsureLoaded(); return _entries.Count; } }
     }
 
+    public static bool IsPoisonedEntry(string sourceKey, string translation)
+    {
+        if (string.IsNullOrWhiteSpace(sourceKey) || string.IsNullOrWhiteSpace(translation))
+            return true;
+
+        int sep = sourceKey.LastIndexOf('\u001f');
+        string rawSource = sep >= 0 && sep + 1 < sourceKey.Length ? sourceKey[(sep + 1)..] : sourceKey;
+        return TextMatch.IsUntranslatedEcho(rawSource, translation);
+    }
+
+    public int ScrubPoisonedEntries()
+    {
+        lock (_gate)
+        {
+            EnsureLoaded();
+            int removed = _scrubbedOnLoad;
+            var badKeys = _entries.Where(kv => IsPoisonedEntry(kv.Key, kv.Value.Value)).Select(kv => kv.Key).ToList();
+            if (badKeys.Count > 0)
+            {
+                foreach (var k in badKeys)
+                    _entries.Remove(k);
+                Compact();
+                removed += badKeys.Count;
+            }
+            return removed;
+        }
+    }
+
     public bool TryGet(string key, out string translation)
     {
         lock (_gate)
         {
             EnsureLoaded();
-            if (_entries.TryGetValue(key, out var entry))
+            if (_entries.TryGetValue(key, out var entry) && !IsPoisonedEntry(key, entry.Value))
             {
                 _entries[key] = (entry.Value, ++_tick);
                 translation = entry.Value;
@@ -65,6 +96,9 @@ public sealed class TranslationCache
     public void Store(string key, string translation)
     {
         if (string.IsNullOrEmpty(key) || string.IsNullOrEmpty(translation))
+            return;
+
+        if (IsPoisonedEntry(key, translation))
             return;
 
         lock (_gate)
@@ -88,6 +122,7 @@ public sealed class TranslationCache
         _loaded = true;
         if (_filePath is null || !File.Exists(_filePath)) return;
 
+        int scrubbed = 0;
         try
         {
             foreach (var line in File.ReadLines(_filePath, Encoding.UTF8))
@@ -98,13 +133,24 @@ public sealed class TranslationCache
                 {
                     var pair = JsonSerializer.Deserialize<string[]>(line);
                     if (pair is { Length: 2 } && !string.IsNullOrEmpty(pair[0]) && !string.IsNullOrEmpty(pair[1]))
+                    {
+                        if (IsPoisonedEntry(pair[0], pair[1]))
+                        {
+                            scrubbed++;
+                            continue;
+                        }
                         _entries[pair[0]] = (pair[1], ++_tick);
+                    }
                 }
-                catch (JsonException) { }
+                catch (JsonException)
+                {
+                    scrubbed++;
+                }
             }
 
+            _scrubbedOnLoad = scrubbed;
             EvictIfNeeded();
-            if (_fileLines > _entries.Count + (_limit / 2))
+            if (scrubbed > 0 || _fileLines > _entries.Count + (_limit / 2))
                 Compact();
         }
         catch { }
